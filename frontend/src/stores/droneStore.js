@@ -18,7 +18,8 @@ export const useDroneStore = defineStore('drone', {
     },
     alerts: [],
     isConnected: false,
-    history: []
+    history: [],
+    rawStream: [] // For raw data terminal
   }),
 
   actions: {
@@ -32,6 +33,17 @@ export const useDroneStore = defineStore('drone', {
       })
       if (this.history.length > 50) {
         this.history.shift()
+      }
+      
+      // Save raw frame to rawStream
+      const rawFrame = {
+        id: Date.now(),
+        time: (new Date()).toLocaleTimeString(),
+        data: newState
+      }
+      this.rawStream.push(rawFrame)
+      if (this.rawStream.length > 50) {
+        this.rawStream.shift()
       }
     },
     addAlert(alertData) {

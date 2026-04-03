@@ -4,7 +4,7 @@ import { useDroneStore } from '@/stores/droneStore'
 export function useWebSocket() {
   // Use current host for websocket to allow connections from other devices
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const url = `${wsProtocol}//${window.location.hostname}:8888/ws`;
+  const url = `${wsProtocol}//${window.location.hostname}:8000/ws`;
   
   const store = useDroneStore()
   const socket = ref(null)

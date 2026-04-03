@@ -13,7 +13,7 @@ import time
 
 async def simulate_drone(
     host: str = "127.0.0.1",
-    port: int = 9001,
+    port: int = 8888,
     drone_id: str = "DJI-001",
     interval: float = 1.0,
 ):
