@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  # 本地 EMQX MQTT Broker
+  emqx:
+    image: emqx/emqx:latest
+    container_name: drone-emqx
+    ports:
+      - "1883:1883"     # MQTT TCP
+      - "8083:8083"     # MQTT WebSocket
+      - "18083:18083"   # EMQX Dashboard (admin/public)
+    environment:
+      - EMQX_NAME=drone-emqx
+    volumes:
+      - emqx_data:/opt/emqx/data
+    restart: unless-stopped
+
+  # 后端服务 (可选容器化)
+  # backend:
+  #   build: ./backend
+  #   ports:
+  #     - "8000:8000"
+  #     - "9001:9001"
+  #   environment:
+  #     - MQTT_BROKER_HOST=emqx
+  #   depends_on:
+  #     - emqx
+  #   restart: unless-stopped
+
+volumes:
+  emqx_data:
