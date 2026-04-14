@@ -2,6 +2,8 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useDroneStore } from '@/stores/droneStore'
 
+const emit = defineEmits(['close'])
+
 const store = useDroneStore()
 
 const panelWidth = ref(360)
@@ -65,6 +67,7 @@ const onResize = (event) => {
 
 const startResize = (event) => {
   event.preventDefault()
+  event.stopPropagation()
 
   startX = event.clientX
   startY = event.clientY
@@ -87,7 +90,11 @@ onBeforeUnmount(() => {
         <p class="eyebrow">无人机信息</p>
         <h2>{{ store.droneState.drone_id }}</h2>
       </div>
-      <div class="state-pill" :class="connectionTone">{{ connectionLabel }}</div>
+
+      <div class="header-actions">
+        <div class="state-pill" :class="connectionTone">{{ connectionLabel }}</div>
+        <button class="close-btn" type="button" aria-label="关闭无人机信息框" @click="emit('close')">×</button>
+      </div>
     </header>
 
     <div class="hero-grid">
@@ -209,6 +216,12 @@ onBeforeUnmount(() => {
   gap: 1rem;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
 .eyebrow {
   margin: 0 0 0.25rem;
   font-size: 0.75rem;
@@ -241,6 +254,18 @@ h2 {
   color: #fca5a5;
   background: rgba(239, 68, 68, 0.12);
   border-color: rgba(239, 68, 68, 0.24);
+}
+
+.close-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.78);
+  color: #cbd5e1;
+  font-size: 1.15rem;
+  line-height: 1;
 }
 
 .hero-grid {

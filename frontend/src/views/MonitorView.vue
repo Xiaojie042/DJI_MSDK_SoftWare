@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useWebSocket } from '@/composables/useWebSocket'
 import { useDroneStore } from '@/stores/droneStore'
 import RawDataTerminal from '@/components/dashboard/RawDataTerminal.vue'
@@ -9,6 +9,8 @@ import WeatherPanel from '@/components/dashboard/WeatherPanel.vue'
 import DroneMap from '@/components/map/DroneMap.vue'
 
 const store = useDroneStore()
+const isDroneInfoVisible = ref(false)
+
 useWebSocket()
 
 const flightStateText = computed(() => (store.droneState.is_flying ? '飞行中' : '地面待命'))
@@ -17,6 +19,14 @@ const trackDistanceText = computed(() =>
     ? `${(store.trackDistanceMeters / 1000).toFixed(2)} km`
     : `${store.trackDistanceMeters.toFixed(0)} m`
 )
+
+const showDroneInfo = () => {
+  isDroneInfoVisible.value = true
+}
+
+const hideDroneInfo = () => {
+  isDroneInfoVisible.value = false
+}
 </script>
 
 <template>
@@ -45,14 +55,20 @@ const trackDistanceText = computed(() =>
 
     <main class="workspace">
       <section class="map-stage glass-panel">
-        <DroneMap />
+        <DroneMap @drone-click="showDroneInfo" />
 
-        <DroneInfoPanel class="drone-overlay" />
+        <transition name="panel-fade">
+          <DroneInfoPanel
+            v-if="isDroneInfoVisible && store.flightTrack.length > 0"
+            class="drone-overlay"
+            @close="hideDroneInfo"
+          />
+        </transition>
 
         <div class="map-caption glass-panel">
           <span class="caption-dot"></span>
           <strong>飞行轨迹已启用</strong>
-          <span>{{ store.flightTrack.length }} 个采样点</span>
+          <span>点击无人机图标查看详情</span>
         </div>
       </section>
 
@@ -211,6 +227,17 @@ const trackDistanceText = computed(() =>
   grid-template-columns: minmax(0, 1.6fr) minmax(340px, 0.95fr);
   gap: 1rem;
   min-height: 0;
+}
+
+.panel-fade-enter-active,
+.panel-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.panel-fade-enter-from,
+.panel-fade-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
 }
 
 @media (max-width: 1380px) {

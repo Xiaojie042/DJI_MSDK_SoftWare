@@ -1,8 +1,13 @@
 import { defineStore } from 'pinia'
 
+const LOCAL_CACHE_KEY = 'drone-monitor:telemetry-cache:v1'
 const TRACK_LIMIT = 1500
 const HISTORY_LIMIT = 50
 const RAW_STREAM_LIMIT = 50
+const ALERT_LIMIT = 20
+const TELEMETRY_ARCHIVE_LIMIT = 300
+
+let persistTimer = null
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 const toRadians = (degrees) => degrees * (Math.PI / 180)
@@ -28,6 +33,151 @@ const hasValidPosition = (position) =>
   Number.isFinite(position?.latitude) &&
   Number.isFinite(position?.longitude) &&
   (position.latitude !== 0 || position.longitude !== 0)
+
+const createDefaultDroneState = () => ({
+  drone_id: 'DJI-NONE',
+  timestamp: Date.now() / 1000,
+  position: { latitude: 0, longitude: 0, altitude: 0 },
+  heading: 0,
+  velocity: { horizontal: 0, vertical: 0 },
+  battery: { percent: 0, voltage: 0, temperature: 0 },
+  gps_signal: 0,
+  flight_mode: 'DISCONNECTED',
+  is_flying: false,
+  home_distance: 0,
+  gimbal_pitch: 0,
+  rc_signal: 0
+})
+
+const createDefaultState = () => ({
+  droneState: createDefaultDroneState(),
+  alerts: [],
+  isConnected: false,
+  history: [],
+  rawStream: [],
+  flightTrack: [],
+  telemetryArchive: [],
+  localCacheMeta: {
+    enabled: true,
+    lastSavedAt: null
+  }
+})
+
+const mergeDroneState = (baseState, nextState = {}) => ({
+  ...baseState,
+  ...nextState,
+  position: {
+    ...baseState.position,
+    ...(nextState.position || {})
+  },
+  velocity: {
+    ...baseState.velocity,
+    ...(nextState.velocity || {})
+  },
+  battery: {
+    ...baseState.battery,
+    ...(nextState.battery || {})
+  }
+})
+
+const readPersistedState = () => {
+  const defaults = createDefaultState()
+
+  if (typeof window === 'undefined') {
+    return defaults
+  }
+
+  try {
+    const raw = window.localStorage.getItem(LOCAL_CACHE_KEY)
+
+    if (!raw) {
+      return defaults
+    }
+
+    const parsed = JSON.parse(raw)
+
+    return {
+      ...defaults,
+      droneState: mergeDroneState(defaults.droneState, parsed.droneState || {}),
+      alerts: Array.isArray(parsed.alerts) ? parsed.alerts.slice(0, ALERT_LIMIT) : defaults.alerts,
+      history: Array.isArray(parsed.history) ? parsed.history.slice(-HISTORY_LIMIT) : defaults.history,
+      rawStream: Array.isArray(parsed.rawStream) ? parsed.rawStream.slice(-RAW_STREAM_LIMIT) : defaults.rawStream,
+      flightTrack: Array.isArray(parsed.flightTrack) ? parsed.flightTrack.slice(-TRACK_LIMIT) : defaults.flightTrack,
+      telemetryArchive: Array.isArray(parsed.telemetryArchive)
+        ? parsed.telemetryArchive.slice(-TELEMETRY_ARCHIVE_LIMIT)
+        : defaults.telemetryArchive,
+      localCacheMeta: {
+        ...defaults.localCacheMeta,
+        ...(parsed.localCacheMeta || {})
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to restore local telemetry cache:', error)
+    return defaults
+  }
+}
+
+const buildArchiveRecord = (state) => ({
+  id: `${Math.round((state.timestamp || Date.now() / 1000) * 1000)}-${Math.random().toString(16).slice(2, 8)}`,
+  timestamp: state.timestamp || Date.now() / 1000,
+  drone_id: state.drone_id,
+  latitude: state.position.latitude,
+  longitude: state.position.longitude,
+  altitude: state.position.altitude || 0,
+  heading: state.heading || 0,
+  horizontal_speed: state.velocity.horizontal || 0,
+  vertical_speed: state.velocity.vertical || 0,
+  battery_percent: state.battery.percent || 0,
+  battery_voltage: state.battery.voltage || 0,
+  battery_temperature: state.battery.temperature || 0,
+  gps_signal: state.gps_signal || 0,
+  flight_mode: state.flight_mode || 'UNKNOWN',
+  is_flying: Boolean(state.is_flying)
+})
+
+const persistStateToLocal = (storeState) => {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(
+      LOCAL_CACHE_KEY,
+      JSON.stringify({
+        droneState: storeState.droneState,
+        alerts: storeState.alerts,
+        history: storeState.history,
+        rawStream: storeState.rawStream,
+        flightTrack: storeState.flightTrack,
+        telemetryArchive: storeState.telemetryArchive,
+        localCacheMeta: storeState.localCacheMeta
+      })
+    )
+  } catch (error) {
+    console.warn('Failed to persist local telemetry cache:', error)
+  }
+}
+
+const schedulePersistence = (store) => {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  const nextSavedAt = Date.now()
+  store.localCacheMeta = {
+    ...store.localCacheMeta,
+    lastSavedAt: nextSavedAt
+  }
+
+  if (persistTimer) {
+    window.clearTimeout(persistTimer)
+  }
+
+  persistTimer = window.setTimeout(() => {
+    persistStateToLocal(store)
+    persistTimer = null
+  }, 250)
+}
 
 const getBatteryHealth = (battery, isConnected) => {
   if (!isConnected) {
@@ -189,27 +339,7 @@ const getSafetyPolicy = (state, isConnected) => {
 }
 
 export const useDroneStore = defineStore('drone', {
-  state: () => ({
-    droneState: {
-      drone_id: 'DJI-NONE',
-      timestamp: Date.now() / 1000,
-      position: { latitude: 0, longitude: 0, altitude: 0 },
-      heading: 0,
-      velocity: { horizontal: 0, vertical: 0 },
-      battery: { percent: 0, voltage: 0, temperature: 0 },
-      gps_signal: 0,
-      flight_mode: 'DISCONNECTED',
-      is_flying: false,
-      home_distance: 0,
-      gimbal_pitch: 0,
-      rc_signal: 0
-    },
-    alerts: [],
-    isConnected: false,
-    history: [],
-    rawStream: [],
-    flightTrack: []
-  }),
+  state: () => readPersistedState(),
 
   getters: {
     batteryHealth(state) {
@@ -227,27 +357,15 @@ export const useDroneStore = defineStore('drone', {
         const previousPoint = state.flightTrack[index]
         return total + haversineDistanceMeters(previousPoint, point)
       }, 0)
+    },
+    localArchiveCount(state) {
+      return state.telemetryArchive.length
     }
   },
 
   actions: {
     updateDroneState(newState) {
-      const mergedState = {
-        ...this.droneState,
-        ...newState,
-        position: {
-          ...this.droneState.position,
-          ...(newState.position || {})
-        },
-        velocity: {
-          ...this.droneState.velocity,
-          ...(newState.velocity || {})
-        },
-        battery: {
-          ...this.droneState.battery,
-          ...(newState.battery || {})
-        }
-      }
+      const mergedState = mergeDroneState(this.droneState, newState)
 
       this.droneState = mergedState
 
@@ -298,7 +416,15 @@ export const useDroneStore = defineStore('drone', {
         if (this.flightTrack.length > TRACK_LIMIT) {
           this.flightTrack.shift()
         }
+
+        this.telemetryArchive.push(buildArchiveRecord(mergedState))
+
+        if (this.telemetryArchive.length > TELEMETRY_ARCHIVE_LIMIT) {
+          this.telemetryArchive.shift()
+        }
       }
+
+      schedulePersistence(this)
     },
     addAlert(alertData) {
       const alert = {
@@ -309,9 +435,11 @@ export const useDroneStore = defineStore('drone', {
 
       this.alerts.unshift(alert)
 
-      if (this.alerts.length > 20) {
+      if (this.alerts.length > ALERT_LIMIT) {
         this.alerts.pop()
       }
+
+      schedulePersistence(this)
     },
     setConnectionStatus(status) {
       this.isConnected = status

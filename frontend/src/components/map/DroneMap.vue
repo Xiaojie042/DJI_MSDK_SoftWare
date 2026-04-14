@@ -4,6 +4,8 @@ import { useDroneStore } from '@/stores/droneStore'
 import { LCircleMarker, LMap, LMarker, LPolyline, LTileLayer } from '@vue-leaflet/vue-leaflet'
 import L from 'leaflet'
 
+defineEmits(['drone-click'])
+
 const store = useDroneStore()
 const zoom = ref(16)
 
@@ -35,23 +37,23 @@ const droneIcon = computed(() => {
     className: 'custom-drone-icon',
     html: `
       <div class="drone-marker" style="--accent:${accentColor};">
-        <svg viewBox="0 0 64 64" fill="none" aria-hidden="true">
-          <g transform="rotate(${store.droneState.heading || 0} 32 32)">
-            <line x1="32" y1="32" x2="32" y2="9" stroke="#f8fafc" stroke-width="4" stroke-linecap="round" />
-            <path d="M32 4L39 16H25L32 4Z" fill="#f8fafc" />
+        <svg viewBox="0 0 56 56" fill="none" aria-hidden="true">
+          <g transform="rotate(${store.droneState.heading || 0} 28 28)">
+            <line x1="28" y1="28" x2="28" y2="10" stroke="#f8fafc" stroke-width="3.2" stroke-linecap="round" />
+            <path d="M28 5L34 15H22L28 5Z" fill="#f8fafc" />
           </g>
-          <circle cx="32" cy="32" r="17" fill="rgba(15, 23, 42, 0.92)" stroke="var(--accent)" stroke-width="3" />
-          <circle cx="32" cy="32" r="7.5" fill="var(--accent)" />
-          <path d="M20 22L12 14M44 22L52 14M20 42L12 50M44 42L52 50" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" />
-          <circle cx="20" cy="22" r="4.2" fill="#0f172a" stroke="#38bdf8" stroke-width="2.2" />
-          <circle cx="44" cy="22" r="4.2" fill="#0f172a" stroke="#38bdf8" stroke-width="2.2" />
-          <circle cx="20" cy="42" r="4.2" fill="#0f172a" stroke="#38bdf8" stroke-width="2.2" />
-          <circle cx="44" cy="42" r="4.2" fill="#0f172a" stroke="#38bdf8" stroke-width="2.2" />
+          <circle cx="28" cy="28" r="14" fill="rgba(15, 23, 42, 0.92)" stroke="var(--accent)" stroke-width="2.6" />
+          <circle cx="28" cy="28" r="6.2" fill="var(--accent)" />
+          <path d="M18 20L11 13M38 20L45 13M18 36L11 43M38 36L45 43" stroke="#38bdf8" stroke-width="2.6" stroke-linecap="round" />
+          <circle cx="18" cy="20" r="3.6" fill="#0f172a" stroke="#38bdf8" stroke-width="1.9" />
+          <circle cx="38" cy="20" r="3.6" fill="#0f172a" stroke="#38bdf8" stroke-width="1.9" />
+          <circle cx="18" cy="36" r="3.6" fill="#0f172a" stroke="#38bdf8" stroke-width="1.9" />
+          <circle cx="38" cy="36" r="3.6" fill="#0f172a" stroke="#38bdf8" stroke-width="1.9" />
         </svg>
       </div>
     `,
-    iconSize: [64, 64],
-    iconAnchor: [32, 32]
+    iconSize: [52, 52],
+    iconAnchor: [26, 26]
   })
 })
 </script>
@@ -90,7 +92,7 @@ const droneIcon = computed(() => {
         :fill-opacity="0.9"
       />
 
-      <l-marker v-if="dronePosition" :lat-lng="dronePosition" :icon="droneIcon" />
+      <l-marker v-if="dronePosition" :lat-lng="dronePosition" :icon="droneIcon" @click="$emit('drone-click')" />
     </l-map>
   </div>
 </template>
@@ -113,9 +115,10 @@ const droneIcon = computed(() => {
 }
 
 .custom-drone-icon .drone-marker {
-  width: 64px;
-  height: 64px;
-  filter: drop-shadow(0 10px 20px rgba(14, 165, 233, 0.36));
+  width: 52px;
+  height: 52px;
+  cursor: pointer;
+  filter: drop-shadow(0 8px 16px rgba(14, 165, 233, 0.3));
 }
 
 .custom-drone-icon svg {

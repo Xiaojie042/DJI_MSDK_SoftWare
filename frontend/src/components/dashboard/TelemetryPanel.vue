@@ -7,6 +7,16 @@ const store = useDroneStore()
 const safetyTone = computed(() => `tone-${store.safetyPolicy.level}`)
 const healthTone = computed(() => `tone-${store.batteryHealth.tone}`)
 
+const localSavedTime = computed(() => {
+  if (!store.localCacheMeta.lastSavedAt) {
+    return '等待首次保存'
+  }
+
+  return new Date(store.localCacheMeta.lastSavedAt).toLocaleTimeString('zh-CN', {
+    hour12: false
+  })
+})
+
 const debugItems = computed(() => [
   {
     label: 'GPS 信号',
@@ -31,6 +41,14 @@ const debugItems = computed(() => [
   {
     label: '原始帧缓存',
     value: `${store.rawStream.length} 条`
+  },
+  {
+    label: '本地归档',
+    value: `${store.localArchiveCount} 条`
+  },
+  {
+    label: '最近保存',
+    value: localSavedTime.value
   }
 ])
 
