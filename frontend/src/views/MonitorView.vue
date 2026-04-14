@@ -1,59 +1,70 @@
 <script setup>
-import { onMounted } from 'vue'
+import { computed } from 'vue'
 import { useWebSocket } from '@/composables/useWebSocket'
 import { useDroneStore } from '@/stores/droneStore'
-import DroneMap from '@/components/map/DroneMap.vue'
 import RawDataTerminal from '@/components/dashboard/RawDataTerminal.vue'
+import TelemetryPanel from '@/components/dashboard/TelemetryPanel.vue'
+import DroneInfoPanel from '@/components/dashboard/DroneInfoPanel.vue'
+import WeatherPanel from '@/components/dashboard/WeatherPanel.vue'
+import DroneMap from '@/components/map/DroneMap.vue'
 
 const store = useDroneStore()
-const { socket } = useWebSocket() // Start WS connection
+useWebSocket()
+
+const flightStateText = computed(() => (store.droneState.is_flying ? '飞行中' : '地面待命'))
+const trackDistanceText = computed(() =>
+  store.trackDistanceMeters >= 1000
+    ? `${(store.trackDistanceMeters / 1000).toFixed(2)} km`
+    : `${store.trackDistanceMeters.toFixed(0)} m`
+)
 </script>
 
 <template>
   <div class="monitor-layout">
-    <!-- Header -->
     <header class="top-bar glass-panel">
       <div class="logo">
+        <p class="eyebrow">Flight Command Center</p>
         <h1 class="text-gradient">DJI 飞行指挥中心</h1>
       </div>
+
       <div class="status-indicators">
         <div class="indicator" :class="{ connected: store.isConnected }">
           <span class="dot"></span>
-          {{ store.isConnected ? '指挥台已连接' : '指挥台未连接' }}
+          {{ store.isConnected ? '地面站已连接' : '地面站未连接' }}
         </div>
         <div class="indicator" :class="{ connected: store.droneState.is_flying }">
           <span class="dot"></span>
-          {{ store.droneState.is_flying ? '飞行中' : '已降落' }}
+          {{ flightStateText }}
+        </div>
+        <div class="indicator connected accent">
+          <span class="dot"></span>
+          航迹长度 {{ trackDistanceText }}
         </div>
       </div>
     </header>
 
-    <!-- Main Content -->
-    <main class="main-content">
-      <!-- Full Map Area -->
-      <section class="map-container glass-panel">
+    <main class="workspace">
+      <section class="map-stage glass-panel">
         <DroneMap />
+
+        <DroneInfoPanel class="drone-overlay" />
+
+        <div class="map-caption glass-panel">
+          <span class="caption-dot"></span>
+          <strong>飞行轨迹已启用</strong>
+          <span>{{ store.flightTrack.length }} 个采样点</span>
+        </div>
       </section>
+
+      <aside class="right-sidebar">
+        <WeatherPanel />
+      </aside>
     </main>
 
-    <!-- Bottom Panels -->
-    <footer class="bottom-panels">
-      <!-- Raw Data Feed Terminal -->
-      <div class="panel-section terminal-wrapper">
-        <RawDataTerminal />
-      </div>
-      
-      <!-- Reserved Weather Station Wrapper -->
-      <div class="panel-section weather-reserved glass-panel">
-        <div class="reserved-content">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="weather-icon">
-            <path d="M17.5 19C19.9853 19 22 16.9853 22 14.5C22 12.1332 20.1834 10.2031 17.8687 10.0223C17.4385 6.6433 14.5768 4 11 4C7.13401 4 4 7.13401 4 11C4 11.2335 4.01139 11.4645 4.03352 11.692C1.7828 12.1583 0 14.1202 0 16.5C0 19.5376 2.46243 22 5.5 22H16"></path>
-          </svg>
-          <h3>气象监测模块</h3>
-          <p class="coming-soon">设备未接入 (模块位预留)</p>
-        </div>
-      </div>
-    </footer>
+    <section class="bottom-deck">
+      <TelemetryPanel />
+      <RawDataTerminal />
+    </section>
   </div>
 </template>
 
@@ -64,41 +75,55 @@ const { socket } = useWebSocket() // Start WS connection
   height: 100vh;
   padding: 1rem;
   gap: 1rem;
+  background:
+    radial-gradient(circle at top left, rgba(14, 165, 233, 0.08), transparent 26%),
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.08), transparent 24%);
 }
 
 .top-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 2rem;
-  height: 70px;
-  border-radius: 20px;
+  gap: 1.5rem;
+  padding: 0 1.4rem;
+  min-height: 74px;
+  border-radius: 22px;
   flex-shrink: 0;
+}
+
+.eyebrow {
+  margin: 0 0 0.2rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  color: rgba(148, 163, 184, 0.8);
+  text-transform: uppercase;
 }
 
 .logo h1 {
   margin: 0;
-  font-size: 1.5rem;
+  font-size: 1.55rem;
   font-weight: 700;
-  letter-spacing: 1px;
+  letter-spacing: 0.04em;
 }
 
 .status-indicators {
   display: flex;
-  gap: 1.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.8rem;
 }
 
 .indicator {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
+  gap: 0.55rem;
+  font-size: 0.88rem;
   color: var(--text-muted);
-  font-weight: 500;
-  background: var(--bg-card);
-  padding: 0.5rem 1rem;
-  border-radius: 50px;
-  transition: all 0.3s ease;
+  font-weight: 600;
+  background: rgba(30, 41, 59, 0.56);
+  padding: 0.6rem 1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
 }
 
 .indicator .dot {
@@ -113,69 +138,138 @@ const { socket } = useWebSocket() // Start WS connection
   background: var(--success);
   box-shadow: 0 0 8px var(--success);
 }
+
 .indicator.connected {
   color: var(--text-main);
 }
 
-.main-content {
-  display: flex;
-  flex: 1;
-  min-height: 0;
+.indicator.accent .dot {
+  background: var(--info);
+  box-shadow: 0 0 8px var(--info);
 }
 
-.map-container {
+.workspace {
   flex: 1;
-  border-radius: 24px;
-  overflow: hidden;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 1rem;
+}
+
+.map-stage {
   position: relative;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 26px;
   border: 1px solid rgba(59, 130, 246, 0.2);
 }
 
-.bottom-panels {
-  display: flex;
-  height: 220px; /* Fixed height for bottom panels */
-  gap: 1rem;
-  flex-shrink: 0;
+.drone-overlay {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  z-index: 500;
 }
 
-.terminal-wrapper {
-  flex: 2; /* 2/3 width */
-  min-width: 0;
-}
-
-.weather-reserved {
-  flex: 1; /* 1/3 width */
-  border-radius: 12px;
-  display: flex;
-  justify-content: center;
+.map-caption {
+  position: absolute;
+  left: 1rem;
+  bottom: 1rem;
+  z-index: 450;
+  display: inline-flex;
   align-items: center;
-  flex-direction: column;
-  background: rgba(30, 41, 59, 0.4);
-  border: 1px dashed rgba(148, 163, 184, 0.3);
+  gap: 0.7rem;
+  padding: 0.75rem 1rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.78);
 }
 
-.reserved-content {
-  text-align: center;
-  color: var(--text-muted);
+.caption-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #22d3ee;
+  box-shadow: 0 0 14px rgba(34, 211, 238, 0.7);
 }
 
-.weather-icon {
-  width: 48px;
-  height: 48px;
-  margin-bottom: 10px;
-  opacity: 0.5;
+.map-caption strong {
+  color: #f8fafc;
+  font-size: 0.92rem;
 }
 
-h3 {
-  margin: 0 0 5px 0;
-  font-size: 1.1rem;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.6);
+.map-caption span:last-child {
+  color: #94a3b8;
+  font-size: 0.82rem;
 }
 
-.coming-soon {
-  margin: 0;
-  font-size: 0.85rem;
-  opacity: 0.6;
+.right-sidebar {
+  min-height: 0;
+}
+
+.bottom-deck {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(340px, 0.95fr);
+  gap: 1rem;
+  min-height: 0;
+}
+
+@media (max-width: 1380px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr) 300px;
+  }
+
+  .bottom-deck {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1100px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .right-sidebar {
+    min-height: 340px;
+  }
+}
+
+@media (max-width: 900px) {
+  .monitor-layout {
+    padding: 0.75rem;
+    height: auto;
+    min-height: 100vh;
+    overflow-y: auto;
+  }
+
+  .top-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 1rem;
+  }
+
+  .status-indicators {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .map-stage {
+    min-height: 520px;
+  }
+
+  .drone-overlay {
+    position: absolute;
+    top: 0.75rem;
+    left: 0.75rem;
+    right: 0.75rem;
+    margin: 0;
+    width: auto !important;
+  }
+
+  .map-caption {
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    justify-content: center;
+  }
 }
 </style>

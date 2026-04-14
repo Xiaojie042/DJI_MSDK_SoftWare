@@ -1,160 +1,322 @@
 <script setup>
+import { computed } from 'vue'
 import { useDroneStore } from '@/stores/droneStore'
+
 const store = useDroneStore()
+
+const safetyTone = computed(() => `tone-${store.safetyPolicy.level}`)
+const healthTone = computed(() => `tone-${store.batteryHealth.tone}`)
+
+const debugItems = computed(() => [
+  {
+    label: 'GPS 信号',
+    value: `${store.droneState.gps_signal || 0} / 5`
+  },
+  {
+    label: '遥控信号',
+    value: store.droneState.rc_signal !== null ? `${store.droneState.rc_signal}%` : '--'
+  },
+  {
+    label: '云台俯仰',
+    value: `${(store.droneState.gimbal_pitch || 0).toFixed(1)}°`
+  },
+  {
+    label: '返航距离',
+    value: `${(store.droneState.home_distance || 0).toFixed(1)} m`
+  },
+  {
+    label: '垂直速度',
+    value: `${(store.droneState.velocity.vertical || 0).toFixed(1)} m/s`
+  },
+  {
+    label: '原始帧缓存',
+    value: `${store.rawStream.length} 条`
+  }
+])
+
+const trackDistanceText = computed(() =>
+  store.trackDistanceMeters >= 1000
+    ? `${(store.trackDistanceMeters / 1000).toFixed(2)} km`
+    : `${store.trackDistanceMeters.toFixed(0)} m`
+)
+
+const batteryScoreText = computed(() =>
+  store.batteryHealth.score === null ? '--' : `${store.batteryHealth.score}`
+)
 </script>
 
 <template>
-  <div class="telemetry-panel glass-panel">
-    <h3>Telemetry Data</h3>
-    
-    <div class="data-grid">
-      <div class="data-item">
-        <div class="label">Altitude</div>
-        <div class="val text-gradient">{{ store.droneState.position.altitude?.toFixed(1) || '0.0' }} <span class="unit">m</span></div>
+  <section class="telemetry-panel glass-panel">
+    <header class="panel-header">
+      <div>
+        <p class="eyebrow">安全与调试</p>
+        <h3>飞控状态总览</h3>
       </div>
-      
-      <div class="data-item">
-        <div class="label">Speed (H/V)</div>
-        <div class="val">{{ store.droneState.velocity.horizontal?.toFixed(1) || '0.0' }} / {{ store.droneState.velocity.vertical?.toFixed(1) || '0.0' }} <span class="unit">m/s</span></div>
-      </div>
+      <div class="policy-badge" :class="safetyTone">{{ store.safetyPolicy.badge }}</div>
+    </header>
 
-      <div class="data-item">
-        <div class="label">Distance</div>
-        <div class="val">{{ store.droneState.home_distance?.toFixed(1) || '0.0' }} <span class="unit">m</span></div>
-      </div>
+    <div class="panel-grid">
+      <article class="status-card safety-card" :class="safetyTone">
+        <span class="card-label">安全策略</span>
+        <strong>{{ store.safetyPolicy.title }}</strong>
+        <p>{{ store.safetyPolicy.description }}</p>
+        <small>{{ store.safetyPolicy.action }}</small>
+      </article>
 
-      <div class="data-item battery">
-        <div class="label">Battery</div>
-        <div class="val flex-center">
-          <div class="battery-bar-container">
-            <div class="battery-bar" 
-                 :style="{ width: `${store.droneState.battery.percent || 0}%`, 
-                           backgroundColor: store.droneState.battery.percent > 20 ? 'var(--success)' : 'var(--danger)' }">
-            </div>
-          </div>
-          <span style="font-size: 1.2rem; font-weight: 600; margin-left: 0.8rem;">{{ store.droneState.battery.percent || 0 }}%</span>
+      <article class="status-card battery-card" :class="healthTone">
+        <div class="battery-topline">
+          <span class="card-label">电池健康度</span>
+          <div class="health-chip">{{ batteryScoreText }}</div>
         </div>
-      </div>
-
-      <div class="data-item">
-        <div class="label">Mode</div>
-        <div class="val status-pill">{{ store.droneState.flight_mode || 'UNKNOWN' }}</div>
-      </div>
-      
-      <div class="data-item">
-        <div class="label">GPS Signal</div>
-        <div class="val flex-center">
-          <div class="signal-bars">
-            <span v-for="i in 5" :key="i" class="bar" :class="{ active: i <= (store.droneState.gps_signal || 0) }"></span>
+        <strong>{{ store.batteryHealth.label }}</strong>
+        <p>{{ store.batteryHealth.summary }}</p>
+        <div class="health-metrics">
+          <div>
+            <span>电压</span>
+            <strong>{{ (store.droneState.battery.voltage || 0).toFixed(1) }} V</strong>
+          </div>
+          <div>
+            <span>温度</span>
+            <strong>{{ (store.droneState.battery.temperature || 0).toFixed(1) }} °C</strong>
+          </div>
+          <div>
+            <span>累计航迹</span>
+            <strong>{{ trackDistanceText }}</strong>
           </div>
         </div>
-      </div>
+      </article>
+
+      <article class="status-card debug-card">
+        <span class="card-label">调试信息</span>
+        <div class="debug-grid">
+          <div v-for="item in debugItems" :key="item.label" class="debug-item">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </div>
+        </div>
+      </article>
     </div>
-  </div>
+  </section>
 </template>
 
 <style scoped>
 .telemetry-panel {
-  padding: 1.5rem;
-  border-radius: 20px;
-  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.1rem;
+  border-radius: 22px;
+  min-height: 0;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.eyebrow {
+  margin: 0 0 0.25rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  color: rgba(148, 163, 184, 0.8);
+  text-transform: uppercase;
 }
 
 h3 {
-  margin-top: 0;
-  margin-bottom: 1.5rem;
-  font-size: 1.2rem;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 1px;
+  margin: 0;
+  color: #f8fafc;
+  font-size: 1.18rem;
 }
 
-.data-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1.5rem;
-}
-
-.data-item {
-  background: var(--bg-card);
-  padding: 1rem;
-  border-radius: 12px;
-  border: 1px solid var(--border-color);
-}
-
-.data-item.battery {
-  grid-column: span 2;
-}
-
-.label {
+.policy-badge {
+  padding: 0.45rem 0.82rem;
+  border-radius: 999px;
   font-size: 0.8rem;
-  color: var(--text-muted);
-  margin-bottom: 0.5rem;
+  font-weight: 700;
+  border: 1px solid transparent;
 }
 
-.val {
-  font-size: 1.4rem;
-  font-weight: bold;
-  color: var(--text-main);
+.panel-grid {
+  display: grid;
+  grid-template-columns: 1.05fr 1.15fr 1.35fr;
+  gap: 0.95rem;
+  min-height: 0;
 }
 
-.unit {
-  font-size: 0.9rem;
-  font-weight: normal;
-  color: var(--text-muted);
+.status-card {
+  min-height: 0;
+  border-radius: 18px;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.68);
+  border: 1px solid rgba(148, 163, 184, 0.14);
 }
 
-.flex-center {
+.card-label {
+  display: block;
+  margin-bottom: 0.45rem;
+  color: #94a3b8;
+  font-size: 0.78rem;
+}
+
+.status-card strong {
+  display: block;
+  margin-bottom: 0.45rem;
+  color: #f8fafc;
+  font-size: 1.08rem;
+}
+
+.status-card p,
+.status-card small {
+  display: block;
+  margin: 0;
+  color: #94a3b8;
+  line-height: 1.55;
+}
+
+.status-card small {
+  margin-top: 0.8rem;
+}
+
+.battery-topline {
   display: flex;
+  justify-content: space-between;
+  gap: 1rem;
   align-items: center;
 }
 
-.battery-bar-container {
-  flex: 1;
-  height: 16px;
-  background: rgba(0,0,0,0.3);
-  border-radius: 8px;
-  border: 2px solid var(--border-color);
-  overflow: hidden;
-  position: relative;
+.health-chip {
+  min-width: 54px;
+  text-align: center;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.9);
+  color: #f8fafc;
+  font-weight: 700;
 }
 
-.battery-bar {
-  height: 100%;
-  border-radius: 6px;
-  transition: width 0.3s ease, background-color 0.3s ease;
+.health-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.9rem;
 }
 
-.status-pill {
-  display: inline-block;
-  padding: 2px 10px;
-  background: rgba(59, 130, 246, 0.2);
-  color: var(--primary);
-  border-radius: 50px;
-  font-size: 1rem;
-  border: 1px solid rgba(59, 130, 246, 0.5);
+.health-metrics div,
+.debug-item {
+  padding: 0.72rem 0.8rem;
+  border-radius: 14px;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.1);
 }
 
-.signal-bars {
-  display: flex;
-  gap: 3px;
-  align-items: flex-end;
-  height: 20px;
+.health-metrics span,
+.debug-item span {
+  display: block;
+  margin-bottom: 0.3rem;
+  color: #94a3b8;
+  font-size: 0.75rem;
 }
 
-.signal-bars .bar {
-  width: 6px;
-  background: rgba(255,255,255,0.1);
-  border-radius: 2px;
+.health-metrics strong,
+.debug-item strong {
+  margin-bottom: 0;
+  font-size: 0.95rem;
 }
-.signal-bars .bar:nth-child(1) { height: 6px; }
-.signal-bars .bar:nth-child(2) { height: 9px; }
-.signal-bars .bar:nth-child(3) { height: 12px; }
-.signal-bars .bar:nth-child(4) { height: 16px; }
-.signal-bars .bar:nth-child(5) { height: 20px; }
 
-.signal-bars .bar.active {
-  background: var(--info);
-  box-shadow: 0 0 5px var(--info);
+.debug-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.tone-good {
+  border-color: rgba(34, 197, 94, 0.24);
+}
+
+.tone-good.policy-badge,
+.tone-good .health-chip {
+  background: rgba(34, 197, 94, 0.12);
+  color: #86efac;
+}
+
+.tone-good.safety-card,
+.tone-good.battery-card {
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.12), rgba(15, 23, 42, 0.7));
+}
+
+.tone-warning {
+  border-color: rgba(245, 158, 11, 0.24);
+}
+
+.tone-warning.policy-badge,
+.tone-warning .health-chip {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fcd34d;
+}
+
+.tone-warning.safety-card,
+.tone-warning.battery-card {
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.12), rgba(15, 23, 42, 0.7));
+}
+
+.tone-danger {
+  border-color: rgba(239, 68, 68, 0.24);
+}
+
+.tone-danger.policy-badge,
+.tone-danger .health-chip {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+}
+
+.tone-danger.safety-card,
+.tone-danger.battery-card {
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.12), rgba(15, 23, 42, 0.7));
+}
+
+.tone-offline {
+  border-color: rgba(148, 163, 184, 0.24);
+}
+
+.tone-offline.policy-badge {
+  background: rgba(148, 163, 184, 0.12);
+  color: #cbd5e1;
+}
+
+.tone-offline.safety-card {
+  background: linear-gradient(180deg, rgba(148, 163, 184, 0.12), rgba(15, 23, 42, 0.7));
+}
+
+.tone-neutral {
+  border-color: rgba(56, 189, 248, 0.18);
+}
+
+.tone-neutral .health-chip {
+  background: rgba(56, 189, 248, 0.12);
+  color: #7dd3fc;
+}
+
+.tone-neutral.battery-card {
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.1), rgba(15, 23, 42, 0.7));
+}
+
+@media (max-width: 1320px) {
+  .panel-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .debug-grid,
+  .health-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .debug-grid,
+  .health-metrics {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 </style>
