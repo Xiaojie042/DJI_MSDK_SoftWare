@@ -54,6 +54,7 @@ class TestTcpDataParser:
         assert state.battery.percent == 80
         assert state.flight_mode == "GPS"
         assert state.is_flying is True
+        assert state.raw_payload == data
 
     def test_parse_partial_data(self):
         data = {"latitude": 31.0, "longitude": 121.0}

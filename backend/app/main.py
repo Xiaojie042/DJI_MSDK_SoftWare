@@ -6,6 +6,7 @@ DJI 无人机实时监控系统 - FastAPI 入口
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from typing import Optional
 
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,7 +27,7 @@ tcp_server = DroneTcpServer()
 mqtt_client = MqttClient()
 ws_manager = WebSocketManager()
 storage_service = StorageService()
-dispatcher: DataDispatcher | None = None
+dispatcher: Optional[DataDispatcher] = None
 
 logger = get_logger(__name__)
 

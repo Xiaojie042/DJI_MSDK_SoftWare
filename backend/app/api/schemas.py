@@ -49,6 +49,7 @@ class RawHistoryRecordResponse(BaseModel):
     stored_at: float
     drone_id: str
     telemetry: dict[str, Any]
+    raw_payload: Optional[dict[str, Any]] = None
 
 
 class RawHistoryResponse(BaseModel):

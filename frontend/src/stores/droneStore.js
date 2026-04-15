@@ -43,6 +43,25 @@ const toBoolean = (value, fallback = false) => {
 
   return fallback
 }
+const parseTimestampToSeconds = (value, fallback = Date.now() / 1000) => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    const numeric = Number(value)
+    if (Number.isFinite(numeric)) {
+      return numeric
+    }
+
+    const parsed = Date.parse(value)
+    if (Number.isFinite(parsed)) {
+      return parsed / 1000
+    }
+  }
+
+  return fallback
+}
 const toRadians = (degrees) => degrees * (Math.PI / 180)
 
 const haversineDistanceMeters = (pointA, pointB) => {
@@ -68,7 +87,7 @@ const hasValidPosition = (position) =>
   (position.latitude !== 0 || position.longitude !== 0)
 
 const formatTelemetryTime = (timestamp) =>
-  new Date((timestamp || Date.now() / 1000) * 1000).toLocaleTimeString('zh-CN', { hour12: false })
+  new Date(parseTimestampToSeconds(timestamp) * 1000).toLocaleTimeString('zh-CN', { hour12: false })
 
 const createDefaultDroneState = () => ({
   drone_id: 'DJI-NONE',
@@ -214,11 +233,33 @@ const buildHistoryEntry = (state) => ({
   speed: state.velocity.horizontal || 0
 })
 
-const buildRawStreamFrame = (payload, fallbackTimestamp = null) => ({
-  id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-  time: formatTelemetryTime(payload?.timestamp || fallbackTimestamp),
-  data: payload
-})
+const extractRawFrameData = (payload = {}) => {
+  if (payload && typeof payload === 'object') {
+    if (payload.raw_payload && typeof payload.raw_payload === 'object') {
+      return payload.raw_payload
+    }
+
+    if (payload.telemetry?.raw_payload && typeof payload.telemetry.raw_payload === 'object') {
+      return payload.telemetry.raw_payload
+    }
+
+    if (payload.telemetry && typeof payload.telemetry === 'object') {
+      return payload.telemetry
+    }
+  }
+
+  return payload
+}
+
+const buildRawStreamFrame = (payload, fallbackTimestamp = null) => {
+  const rawData = extractRawFrameData(payload)
+
+  return {
+    id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    time: formatTelemetryTime(rawData?.timestamp ?? payload?.timestamp ?? fallbackTimestamp),
+    data: rawData
+  }
+}
 
 const normalizeDroneStatePayload = (payload = {}) => {
   const source =

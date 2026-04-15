@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import time
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
 from sqlalchemy import Column, Float, Integer, String, Text, create_engine
@@ -65,6 +65,9 @@ class DroneState(BaseModel):
 
     # 遥控器信号
     rc_signal: Optional[int] = Field(default=None, description="遥控器信号强度 (%)")
+
+    # 原始遥测 JSON
+    raw_payload: Optional[Dict[str, Any]] = Field(default=None, description="原始遥测 JSON")
 
 
 # ─── SQLAlchemy 模型 (数据库持久化) ─────────────────────────

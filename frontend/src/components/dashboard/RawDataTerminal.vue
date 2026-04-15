@@ -8,6 +8,7 @@ const isExpanded = ref(false)
 
 const recentFrames = computed(() => store.rawStream.slice(-12))
 const latestFrameTime = computed(() => recentFrames.value.at(-1)?.time || '--:--:--')
+const formatFrame = (payload) => JSON.stringify(payload, null, 2)
 
 const toggleConsole = () => {
   isExpanded.value = !isExpanded.value
@@ -71,10 +72,13 @@ watch(
           <div v-if="recentFrames.length === 0" class="no-data">
             [SYS] 等待 TCP 数据帧接入...
           </div>
-          <div v-for="frame in recentFrames" :key="frame.id" class="code-line">
-            <span class="time">[{{ frame.time }}]</span>
-            <span class="json">{{ JSON.stringify(frame.data).slice(0, 180) }}</span>
-          </div>
+          <article v-for="frame in recentFrames" :key="frame.id" class="code-line">
+            <div class="line-header">
+              <span class="time">[{{ frame.time }}]</span>
+              <span class="tag">RAW JSON</span>
+            </div>
+            <pre class="json">{{ formatFrame(frame.data) }}</pre>
+          </article>
         </div>
       </div>
     </transition>
@@ -192,19 +196,38 @@ watch(
 }
 
 .code-line {
-  font-size: 12px;
-  line-height: 1.5;
-  margin-bottom: 0.45rem;
-  word-break: break-all;
+  margin-bottom: 0.8rem;
+  padding: 0.8rem;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.line-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.55rem;
 }
 
 .time {
   color: #a78bfa;
-  margin-right: 8px;
+}
+
+.tag {
+  color: #22d3ee;
+  font-size: 11px;
+  letter-spacing: 0.08em;
 }
 
 .json {
+  margin: 0;
   color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .no-data {

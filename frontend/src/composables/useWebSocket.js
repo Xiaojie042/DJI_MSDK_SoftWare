@@ -35,21 +35,34 @@ export function useWebSocket() {
   const socket = ref(null)
   let reconnectTimer = null
 
+  const fetchJsonWithTimeout = async (path, timeoutMs = 2500) => {
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs)
+
+    try {
+      const response = await fetch(createApiUrl(path), { signal: controller.signal })
+      if (!response.ok) {
+        return null
+      }
+
+      return await response.json()
+    } finally {
+      window.clearTimeout(timer)
+    }
+  }
+
   const hydrateFromBackend = async () => {
     try {
-      const [historyResponse, rawResponse] = await Promise.all([
-        fetch(createApiUrl('/api/history?limit=300')),
-        fetch(createApiUrl('/api/history/raw?limit=50'))
+      const [historyPayload, rawPayload] = await Promise.all([
+        fetchJsonWithTimeout('/api/history?limit=300'),
+        fetchJsonWithTimeout('/api/history/raw?limit=50')
       ])
 
-      if (!historyResponse.ok && !rawResponse.ok) {
+      if (!historyPayload && !rawPayload) {
         return
       }
 
-      const historyPayload = historyResponse.ok ? await historyResponse.json() : { records: [] }
-      const rawPayload = rawResponse.ok ? await rawResponse.json() : { records: [] }
-
-      store.hydrateFromBackend(historyPayload.records || [], rawPayload.records || [])
+      store.hydrateFromBackend(historyPayload?.records || [], rawPayload?.records || [])
     } catch (error) {
       console.warn('Failed to hydrate telemetry from backend:', error)
     }
@@ -106,9 +119,9 @@ export function useWebSocket() {
     }
   }
 
-  onMounted(async () => {
-    await hydrateFromBackend()
+  onMounted(() => {
     connect()
+    void hydrateFromBackend()
   })
 
   onUnmounted(() => {

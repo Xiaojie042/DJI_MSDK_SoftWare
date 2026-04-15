@@ -168,6 +168,7 @@ class TcpDataParser:
                     ["gimbalPitch", "gimbal_pitch", "gimbal.pitch"],
                 ),
                 rc_signal=self._extract_rc_signal(payload),
+                raw_payload=payload,
             )
 
             logger.debug(

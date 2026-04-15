@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from typing import Optional
 
 from fastapi import APIRouter, Query
 
@@ -68,7 +69,7 @@ async def system_status() -> SystemStatusResponse:
 
 @router.get("/history", response_model=FlightHistoryResponse)
 async def get_flight_history(
-    drone_id: str = Query(default="DJI-001", description="Drone ID"),
+    drone_id: Optional[str] = Query(default=None, description="Drone ID"),
     limit: int = Query(default=1000, ge=1, le=10000, description="Max records"),
 ) -> FlightHistoryResponse:
     storage = get_storage()

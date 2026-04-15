@@ -13,7 +13,7 @@ import json
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -61,6 +61,9 @@ class StorageService:
         """
         Persist one telemetry message into SQLite and local JSONL history.
         """
+        normalized_payload = self._build_normalized_payload(state)
+        raw_payload = self._build_raw_payload(state)
+
         record = FlightRecord(
             drone_id=state.drone_id,
             timestamp=state.timestamp,
@@ -79,7 +82,7 @@ class StorageService:
             home_distance=state.home_distance,
             gimbal_pitch=state.gimbal_pitch,
             rc_signal=state.rc_signal,
-            raw_data=state.model_dump_json(),
+            raw_data=json.dumps(raw_payload, ensure_ascii=False),
         )
 
         async with self._session_factory() as session:
@@ -93,22 +96,35 @@ class StorageService:
         payload = {
             "stored_at": time.time(),
             "drone_id": state.drone_id,
-            "telemetry": state.model_dump(mode="json"),
+            "telemetry": self._build_normalized_payload(state),
+            "raw_payload": self._build_raw_payload(state),
         }
         with self._raw_history_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
+    @staticmethod
+    def _build_normalized_payload(state: DroneState) -> dict[str, Any]:
+        return state.model_dump(mode="json", exclude={"raw_payload"})
+
+    @staticmethod
+    def _build_raw_payload(state: DroneState) -> dict[str, Any]:
+        return state.raw_payload or state.model_dump(mode="json", exclude={"raw_payload"})
+
     async def get_flight_history(
         self,
-        drone_id: str = "DJI-001",
+        drone_id: Optional[str] = None,
         limit: int = 1000,
     ) -> list[dict]:
         """Fetch latest normalized telemetry history from SQLite."""
         async with self._session_factory() as session:
+            target_drone_id = drone_id or await self._get_latest_drone_id(session)
+            if not target_drone_id:
+                return []
+
             stmt = (
                 select(FlightRecord)
-                .where(FlightRecord.drone_id == drone_id)
-                .order_by(FlightRecord.timestamp.desc())
+                .where(FlightRecord.drone_id == target_drone_id)
+                .order_by(FlightRecord.id.desc())
                 .limit(limit)
             )
             result = await session.execute(stmt)
@@ -137,6 +153,11 @@ class StorageService:
             }
             for r in records
         ]
+
+    async def _get_latest_drone_id(self, session: AsyncSession) -> Optional[str]:
+        stmt = select(FlightRecord.drone_id).order_by(FlightRecord.id.desc()).limit(1)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def get_raw_history(self, limit: int = 200) -> list[dict[str, Any]]:
         """Fetch recent raw telemetry snapshots from local JSONL file."""
