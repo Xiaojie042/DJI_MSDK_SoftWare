@@ -10,6 +10,39 @@ const TELEMETRY_ARCHIVE_LIMIT = 300
 let persistTimer = null
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
+const toFiniteNumber = (value, fallback = 0) => {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : fallback
+}
+const toNullableNumber = (value) => {
+  if (value === null || value === undefined || value === '') {
+    return null
+  }
+
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : null
+}
+const toBoolean = (value, fallback = false) => {
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  if (typeof value === 'number') {
+    return Boolean(value)
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (['true', '1', 'yes', 'on'].includes(normalized)) {
+      return true
+    }
+    if (['false', '0', 'no', 'off'].includes(normalized)) {
+      return false
+    }
+  }
+
+  return fallback
+}
 const toRadians = (degrees) => degrees * (Math.PI / 180)
 
 const haversineDistanceMeters = (pointA, pointB) => {
@@ -34,6 +67,9 @@ const hasValidPosition = (position) =>
   Number.isFinite(position?.longitude) &&
   (position.latitude !== 0 || position.longitude !== 0)
 
+const formatTelemetryTime = (timestamp) =>
+  new Date((timestamp || Date.now() / 1000) * 1000).toLocaleTimeString('zh-CN', { hour12: false })
+
 const createDefaultDroneState = () => ({
   drone_id: 'DJI-NONE',
   timestamp: Date.now() / 1000,
@@ -46,7 +82,7 @@ const createDefaultDroneState = () => ({
   is_flying: false,
   home_distance: 0,
   gimbal_pitch: 0,
-  rc_signal: 0
+  rc_signal: null
 })
 
 const createDefaultState = () => ({
@@ -134,6 +170,106 @@ const buildArchiveRecord = (state) => ({
   flight_mode: state.flight_mode || 'UNKNOWN',
   is_flying: Boolean(state.is_flying)
 })
+
+const createTrackPoint = (state) => {
+  if (!hasValidPosition(state.position)) {
+    return null
+  }
+
+  return {
+    lat: state.position.latitude,
+    lng: state.position.longitude,
+    altitude: state.position.altitude || 0,
+    heading: state.heading || 0,
+    timestamp: state.timestamp || Date.now() / 1000
+  }
+}
+
+const appendTrackPoint = (track, state) => {
+  const nextPoint = createTrackPoint(state)
+
+  if (!nextPoint) {
+    return
+  }
+
+  const lastPoint = track[track.length - 1]
+  const shouldAppend =
+    !lastPoint ||
+    Math.abs(lastPoint.lat - nextPoint.lat) > 0.00001 ||
+    Math.abs(lastPoint.lng - nextPoint.lng) > 0.00001 ||
+    Math.abs(lastPoint.altitude - nextPoint.altitude) > 0.8
+
+  if (shouldAppend) {
+    track.push(nextPoint)
+  }
+
+  if (track.length > TRACK_LIMIT) {
+    track.shift()
+  }
+}
+
+const buildHistoryEntry = (state) => ({
+  time: formatTelemetryTime(state.timestamp),
+  altitude: state.position.altitude || 0,
+  speed: state.velocity.horizontal || 0
+})
+
+const buildRawStreamFrame = (payload, fallbackTimestamp = null) => ({
+  id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+  time: formatTelemetryTime(payload?.timestamp || fallbackTimestamp),
+  data: payload
+})
+
+const normalizeDroneStatePayload = (payload = {}) => {
+  const source =
+    payload && typeof payload === 'object' && payload.telemetry && typeof payload.telemetry === 'object'
+      ? payload.telemetry
+      : payload
+
+  const position = source.position || {}
+  const velocity = source.velocity || {}
+  const battery = source.battery || {}
+
+  return {
+    drone_id: source.drone_id || source.droneId || 'DJI-NONE',
+    timestamp: toFiniteNumber(source.timestamp, Date.now() / 1000),
+    position: {
+      latitude: toFiniteNumber(position.latitude ?? source.latitude ?? source.lat, 0),
+      longitude: toFiniteNumber(position.longitude ?? source.longitude ?? source.lng ?? source.lon, 0),
+      altitude: toFiniteNumber(position.altitude ?? source.altitude ?? source.relative_altitude, 0)
+    },
+    heading: toFiniteNumber(source.heading ?? source.aircraft_heading, 0),
+    velocity: {
+      horizontal: toFiniteNumber(
+        velocity.horizontal ?? velocity.horizontal_speed ?? source.horizontal_speed ?? source.horizontalSpeed,
+        0
+      ),
+      vertical: toFiniteNumber(velocity.vertical ?? source.vertical_speed ?? source.verticalSpeed, 0)
+    },
+    battery: {
+      percent: clamp(
+        Math.round(toFiniteNumber(battery.percent ?? source.battery_percent ?? source.batteryPercent, 0)),
+        0,
+        100
+      ),
+      voltage: toFiniteNumber(battery.voltage ?? source.battery_voltage ?? source.batteryVoltage, 0),
+      temperature: toFiniteNumber(
+        battery.temperature ?? source.battery_temperature ?? source.batteryTemperature,
+        0
+      )
+    },
+    gps_signal: clamp(
+      Math.round(toFiniteNumber(source.gps_signal ?? source.gpsSignal, 0)),
+      0,
+      5
+    ),
+    flight_mode: source.flight_mode || source.flightMode || source.flight_mode_string || 'UNKNOWN',
+    is_flying: toBoolean(source.is_flying ?? source.isFlying, false),
+    home_distance: toFiniteNumber(source.home_distance ?? source.homeDistance, 0),
+    gimbal_pitch: toFiniteNumber(source.gimbal_pitch ?? source.gimbalPitch, 0),
+    rc_signal: toNullableNumber(source.rc_signal ?? source.rcSignal)
+  }
+}
 
 const persistStateToLocal = (storeState) => {
   if (typeof window === 'undefined') {
@@ -365,27 +501,18 @@ export const useDroneStore = defineStore('drone', {
 
   actions: {
     updateDroneState(newState) {
-      const mergedState = mergeDroneState(this.droneState, newState)
+      const normalizedState = normalizeDroneStatePayload(newState)
+      const mergedState = mergeDroneState(this.droneState, normalizedState)
 
       this.droneState = mergedState
 
-      const currentTime = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-
-      this.history.push({
-        time: currentTime,
-        altitude: mergedState.position.altitude || 0,
-        speed: mergedState.velocity.horizontal || 0
-      })
+      this.history.push(buildHistoryEntry(mergedState))
 
       if (this.history.length > HISTORY_LIMIT) {
         this.history.shift()
       }
 
-      const rawFrame = {
-        id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-        time: currentTime,
-        data: newState
-      }
+      const rawFrame = buildRawStreamFrame(newState, mergedState.timestamp)
 
       this.rawStream.push(rawFrame)
 
@@ -394,33 +521,53 @@ export const useDroneStore = defineStore('drone', {
       }
 
       if (hasValidPosition(mergedState.position)) {
-        const nextPoint = {
-          lat: mergedState.position.latitude,
-          lng: mergedState.position.longitude,
-          altitude: mergedState.position.altitude || 0,
-          heading: mergedState.heading || 0,
-          timestamp: mergedState.timestamp || Date.now() / 1000
-        }
-
-        const lastPoint = this.flightTrack[this.flightTrack.length - 1]
-        const shouldAppend =
-          !lastPoint ||
-          Math.abs(lastPoint.lat - nextPoint.lat) > 0.00001 ||
-          Math.abs(lastPoint.lng - nextPoint.lng) > 0.00001 ||
-          Math.abs(lastPoint.altitude - nextPoint.altitude) > 0.8
-
-        if (shouldAppend) {
-          this.flightTrack.push(nextPoint)
-        }
-
-        if (this.flightTrack.length > TRACK_LIMIT) {
-          this.flightTrack.shift()
-        }
-
+        appendTrackPoint(this.flightTrack, mergedState)
         this.telemetryArchive.push(buildArchiveRecord(mergedState))
 
         if (this.telemetryArchive.length > TELEMETRY_ARCHIVE_LIMIT) {
           this.telemetryArchive.shift()
+        }
+      }
+
+      schedulePersistence(this)
+    },
+    hydrateFromBackend(historyRecords = [], rawRecords = []) {
+      const normalizedHistory = Array.isArray(historyRecords)
+        ? historyRecords.map((record) => normalizeDroneStatePayload(record)).filter(Boolean)
+        : []
+
+      if (normalizedHistory.length > 0) {
+        const chronologicalHistory = normalizedHistory.slice().reverse()
+        const latestState = normalizedHistory[0]
+
+        this.droneState = mergeDroneState(this.droneState, latestState)
+        this.history = chronologicalHistory.slice(-HISTORY_LIMIT).map((state) => buildHistoryEntry(state))
+        this.flightTrack = []
+        this.telemetryArchive = []
+
+        for (const state of chronologicalHistory) {
+          appendTrackPoint(this.flightTrack, state)
+
+          if (hasValidPosition(state.position)) {
+            this.telemetryArchive.push(buildArchiveRecord(state))
+          }
+        }
+
+        if (this.telemetryArchive.length > TELEMETRY_ARCHIVE_LIMIT) {
+          this.telemetryArchive = this.telemetryArchive.slice(-TELEMETRY_ARCHIVE_LIMIT)
+        }
+      }
+
+      if (Array.isArray(rawRecords) && rawRecords.length > 0) {
+        this.rawStream = rawRecords
+          .slice(-RAW_STREAM_LIMIT)
+          .map((record, index) =>
+            buildRawStreamFrame(record.telemetry || record, record.stored_at || record.timestamp || index)
+          )
+
+        if (normalizedHistory.length === 0) {
+          const latestRawState = normalizeDroneStatePayload(rawRecords[rawRecords.length - 1] || {})
+          this.droneState = mergeDroneState(this.droneState, latestRawState)
         }
       }
 
