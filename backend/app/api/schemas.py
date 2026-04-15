@@ -1,16 +1,13 @@
-"""
-Pydantic 请求/响应模型
-供 REST API 使用
-"""
+"""Pydantic request/response schemas for REST APIs."""
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
+
 from pydantic import BaseModel, Field
 
 
 class HealthResponse(BaseModel):
-    """健康检查响应"""
     status: str = "ok"
     tcp_server: str = "running"
     mqtt_connected: bool = False
@@ -18,13 +15,11 @@ class HealthResponse(BaseModel):
 
 
 class FlightHistoryQuery(BaseModel):
-    """飞行历史查询参数"""
-    drone_id: str = Field(default="DJI-001", description="无人机 ID")
-    limit: int = Field(default=1000, ge=1, le=10000, description="返回记录数上限")
+    drone_id: str = Field(default="DJI-001", description="Drone ID")
+    limit: int = Field(default=1000, ge=1, le=10000, description="Max records")
 
 
 class FlightRecordResponse(BaseModel):
-    """飞行记录响应"""
     id: int
     drone_id: str
     timestamp: float
@@ -35,22 +30,38 @@ class FlightRecordResponse(BaseModel):
     horizontal_speed: float
     vertical_speed: float
     battery_percent: int
+    battery_voltage: float = 0.0
+    battery_temperature: float = 0.0
+    gps_signal: int = 0
     flight_mode: str
     is_flying: bool
+    home_distance: float = 0.0
+    gimbal_pitch: float = 0.0
+    rc_signal: Optional[int] = None
 
 
 class FlightHistoryResponse(BaseModel):
-    """飞行历史列表响应"""
     total: int
     records: list[FlightRecordResponse]
 
 
+class RawHistoryRecordResponse(BaseModel):
+    stored_at: float
+    drone_id: str
+    telemetry: dict[str, Any]
+
+
+class RawHistoryResponse(BaseModel):
+    total: int
+    records: list[RawHistoryRecordResponse]
+
+
 class SystemStatusResponse(BaseModel):
-    """系统状态响应"""
     status: str = "ok"
     tcp_server_port: int
     mqtt_broker: str
     mqtt_connected: bool
     websocket_clients: int
     database: str
+    raw_history_path: str
     uptime_seconds: Optional[float] = None

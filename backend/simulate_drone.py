@@ -10,10 +10,12 @@ import math
 import random
 import time
 
+from app.config import settings
+
 
 async def simulate_drone(
     host: str = "127.0.0.1",
-    port: int = 8888,
+    port: int = settings.tcp_server_port,
     drone_id: str = "DJI-001",
     interval: float = 1.0,
 ):

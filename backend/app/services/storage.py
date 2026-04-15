@@ -1,25 +1,32 @@
 """
-数据持久化服务
-使用 SQLAlchemy + aiosqlite 异步写入 SQLite
+Persistent storage service.
+
+Responsibilities:
+1. Store normalized telemetry into SQLite.
+2. Persist raw telemetry snapshots into local JSONL for debugging/replay.
 """
 
 from __future__ import annotations
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+import asyncio
+import json
+import time
+from collections import deque
+from pathlib import Path
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
-from app.models.drone import Base, FlightRecord, DroneState
+from app.models.drone import Base, DroneState, FlightRecord
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
 class StorageService:
-    """
-    异步数据库存储服务
-
-    将无人机遥测数据持久化到 SQLite 数据库。
-    """
+    """Asynchronous persistence service for telemetry data."""
 
     def __init__(self):
         self._engine = create_async_engine(
@@ -31,19 +38,28 @@ class StorageService:
             class_=AsyncSession,
             expire_on_commit=False,
         )
+        self._raw_history_path = Path(settings.raw_history_path)
 
     async def init_db(self) -> None:
-        """初始化数据库，创建表"""
+        """Initialize database and ensure raw-history local file exists."""
         async with self._engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("数据库表已创建")
+
+        await asyncio.to_thread(self._ensure_raw_history_file)
+        logger.info(
+            "Storage initialized",
+            database_url=settings.database_url,
+            raw_history_path=str(self._raw_history_path),
+        )
+
+    def _ensure_raw_history_file(self) -> None:
+        self._raw_history_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self._raw_history_path.exists():
+            self._raw_history_path.touch()
 
     async def save_telemetry(self, state: DroneState) -> None:
         """
-        保存遥测数据到数据库
-
-        Args:
-            state: 无人机状态数据
+        Persist one telemetry message into SQLite and local JSONL history.
         """
         record = FlightRecord(
             drone_id=state.drone_id,
@@ -59,7 +75,7 @@ class StorageService:
             battery_temperature=state.battery.temperature,
             gps_signal=state.gps_signal,
             flight_mode=state.flight_mode,
-            is_flying=1 if state.is_flying else 0,
+            is_flying=1 if state.is_flying else 0,  # SQLite does not have native bool
             home_distance=state.home_distance,
             gimbal_pitch=state.gimbal_pitch,
             rc_signal=state.rc_signal,
@@ -69,25 +85,25 @@ class StorageService:
         async with self._session_factory() as session:
             session.add(record)
             await session.commit()
-            logger.debug("遥测数据已入库", drone_id=state.drone_id)
+
+        await asyncio.to_thread(self._append_raw_history, state)
+        logger.debug("Telemetry persisted", drone_id=state.drone_id)
+
+    def _append_raw_history(self, state: DroneState) -> None:
+        payload = {
+            "stored_at": time.time(),
+            "drone_id": state.drone_id,
+            "telemetry": state.model_dump(mode="json"),
+        }
+        with self._raw_history_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
     async def get_flight_history(
         self,
         drone_id: str = "DJI-001",
         limit: int = 1000,
     ) -> list[dict]:
-        """
-        查询飞行历史记录
-
-        Args:
-            drone_id: 无人机 ID
-            limit: 返回记录数上限
-
-        Returns:
-            飞行记录字典列表
-        """
-        from sqlalchemy import select
-
+        """Fetch latest normalized telemetry history from SQLite."""
         async with self._session_factory() as session:
             stmt = (
                 select(FlightRecord)
@@ -98,25 +114,56 @@ class StorageService:
             result = await session.execute(stmt)
             records = result.scalars().all()
 
-            return [
-                {
-                    "id": r.id,
-                    "drone_id": r.drone_id,
-                    "timestamp": r.timestamp,
-                    "latitude": r.latitude,
-                    "longitude": r.longitude,
-                    "altitude": r.altitude,
-                    "heading": r.heading,
-                    "horizontal_speed": r.horizontal_speed,
-                    "vertical_speed": r.vertical_speed,
-                    "battery_percent": r.battery_percent,
-                    "flight_mode": r.flight_mode,
-                    "is_flying": bool(r.is_flying),
-                }
-                for r in records
-            ]
+        return [
+            {
+                "id": r.id,
+                "drone_id": r.drone_id,
+                "timestamp": r.timestamp,
+                "latitude": r.latitude,
+                "longitude": r.longitude,
+                "altitude": r.altitude,
+                "heading": r.heading,
+                "horizontal_speed": r.horizontal_speed,
+                "vertical_speed": r.vertical_speed,
+                "battery_percent": r.battery_percent,
+                "battery_voltage": r.battery_voltage,
+                "battery_temperature": r.battery_temperature,
+                "gps_signal": r.gps_signal,
+                "flight_mode": r.flight_mode,
+                "is_flying": bool(r.is_flying),
+                "home_distance": r.home_distance,
+                "gimbal_pitch": r.gimbal_pitch,
+                "rc_signal": r.rc_signal,
+            }
+            for r in records
+        ]
+
+    async def get_raw_history(self, limit: int = 200) -> list[dict[str, Any]]:
+        """Fetch recent raw telemetry snapshots from local JSONL file."""
+        safe_limit = max(1, min(limit, 10_000))
+        return await asyncio.to_thread(self._read_recent_raw_history, safe_limit)
+
+    def _read_recent_raw_history(self, limit: int) -> list[dict[str, Any]]:
+        if not self._raw_history_path.exists():
+            return []
+
+        tail: deque[str] = deque(maxlen=limit)
+        with self._raw_history_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                text = line.strip()
+                if text:
+                    tail.append(text)
+
+        records: list[dict[str, Any]] = []
+        for line in tail:
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                logger.warning("Skipping invalid JSONL raw line", preview=line[:200])
+
+        return records
 
     async def close(self) -> None:
-        """关闭数据库连接"""
+        """Close database resources."""
         await self._engine.dispose()
-        logger.info("数据库连接已关闭")
+        logger.info("Storage closed")

@@ -31,6 +31,10 @@ class Settings(BaseSettings):
         default="sqlite+aiosqlite:///./drone_monitor.db",
         description="SQLite 数据库连接 URL",
     )
+    raw_history_path: str = Field(
+        default="./data/telemetry_raw.jsonl",
+        description="原始遥测数据本地落盘路径(JSONL)",
+    )
 
     # 日志
     log_level: str = Field(default="INFO", description="日志等级")

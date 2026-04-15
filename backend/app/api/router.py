@@ -1,49 +1,45 @@
-"""
-REST API 路由
-提供系统状态查询和历史数据接口
-"""
+"""REST API routes for system status and history queries."""
 
 from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
 from app.api.schemas import (
-    HealthResponse,
     FlightHistoryResponse,
     FlightRecordResponse,
+    HealthResponse,
+    RawHistoryRecordResponse,
+    RawHistoryResponse,
     SystemStatusResponse,
 )
 from app.config import settings
 
 router = APIRouter(prefix="/api", tags=["API"])
-
-# 启动时间 (用于计算 uptime)
 _start_time = time.time()
 
 
 def get_storage():
-    """获取 StorageService 依赖 (在 main.py 中注入)"""
     from app.main import storage_service
+
     return storage_service
 
 
 def get_mqtt():
-    """获取 MqttClient 依赖"""
     from app.main import mqtt_client
+
     return mqtt_client
 
 
 def get_ws_manager():
-    """获取 WebSocketManager 依赖"""
     from app.main import ws_manager
+
     return ws_manager
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health_check():
-    """健康检查端点"""
+async def health_check() -> HealthResponse:
     mqtt = get_mqtt()
     ws = get_ws_manager()
     return HealthResponse(
@@ -55,8 +51,7 @@ async def health_check():
 
 
 @router.get("/status", response_model=SystemStatusResponse)
-async def system_status():
-    """系统详细状态"""
+async def system_status() -> SystemStatusResponse:
     mqtt = get_mqtt()
     ws = get_ws_manager()
     return SystemStatusResponse(
@@ -66,19 +61,37 @@ async def system_status():
         mqtt_connected=mqtt.is_connected,
         websocket_clients=ws.connection_count,
         database=settings.database_url,
+        raw_history_path=settings.raw_history_path,
         uptime_seconds=round(time.time() - _start_time, 1),
     )
 
 
 @router.get("/history", response_model=FlightHistoryResponse)
 async def get_flight_history(
-    drone_id: str = Query(default="DJI-001", description="无人机 ID"),
-    limit: int = Query(default=1000, ge=1, le=10000, description="返回记录数"),
-):
-    """查询飞行历史记录"""
+    drone_id: str = Query(default="DJI-001", description="Drone ID"),
+    limit: int = Query(default=1000, ge=1, le=10000, description="Max records"),
+) -> FlightHistoryResponse:
     storage = get_storage()
     records = await storage.get_flight_history(drone_id=drone_id, limit=limit)
     return FlightHistoryResponse(
         total=len(records),
-        records=[FlightRecordResponse(**r) for r in records],
+        records=[FlightRecordResponse(**record) for record in records],
     )
+
+
+@router.get("/history/raw", response_model=RawHistoryResponse)
+async def get_raw_history(
+    limit: int = Query(default=200, ge=1, le=10000, description="Max raw records"),
+) -> RawHistoryResponse:
+    storage = get_storage()
+    records = await storage.get_raw_history(limit=limit)
+
+    normalized: list[RawHistoryRecordResponse] = []
+    for record in records:
+        try:
+            normalized.append(RawHistoryRecordResponse(**record))
+        except Exception:
+            # Skip malformed history row to keep API stable.
+            continue
+
+    return RawHistoryResponse(total=len(normalized), records=normalized)
