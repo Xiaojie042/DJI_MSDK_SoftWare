@@ -1,26 +1,12 @@
 <script setup>
-import { ref } from 'vue'
 import { useWebSocket } from '@/composables/useWebSocket'
-import { useDroneStore } from '@/stores/droneStore'
 import TopBar from '@/components/dashboard/TopBar.vue'
 import RawDataTerminal from '@/components/dashboard/RawDataTerminal.vue'
 import TelemetryPanel from '@/components/dashboard/TelemetryPanel.vue'
-import DroneInfoPanel from '@/components/dashboard/DroneInfoPanel.vue'
 import WeatherPanel from '@/components/dashboard/WeatherPanel.vue'
 import DroneMap from '@/components/map/DroneMap.vue'
 
-const store = useDroneStore()
-const isDroneInfoVisible = ref(false)
-
 useWebSocket()
-
-const showDroneInfo = () => {
-  isDroneInfoVisible.value = true
-}
-
-const hideDroneInfo = () => {
-  isDroneInfoVisible.value = false
-}
 </script>
 
 <template>
@@ -29,20 +15,12 @@ const hideDroneInfo = () => {
 
     <main class="workspace">
       <section class="map-stage glass-panel">
-        <DroneMap @drone-click="showDroneInfo" />
-
-        <transition name="panel-fade">
-          <DroneInfoPanel
-            v-if="isDroneInfoVisible && store.flightTrack.length > 0"
-            class="drone-overlay"
-            @close="hideDroneInfo"
-          />
-        </transition>
+        <DroneMap />
 
         <div class="map-caption glass-panel">
           <span class="caption-dot"></span>
           <strong>飞行轨迹已启用</strong>
-          <span>点击无人机图标查看详情</span>
+          <span>点击地图中的无人机箭头可查看跟随明细弹窗</span>
         </div>
       </section>
 
@@ -84,13 +62,6 @@ const hideDroneInfo = () => {
   overflow: hidden;
   border-radius: 26px;
   border: 1px solid rgba(59, 130, 246, 0.2);
-}
-
-.drone-overlay {
-  position: absolute;
-  top: 1rem;
-  left: 1rem;
-  z-index: 500;
 }
 
 .map-caption {
@@ -135,17 +106,6 @@ const hideDroneInfo = () => {
   min-height: 0;
 }
 
-.panel-fade-enter-active,
-.panel-fade-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-
-.panel-fade-enter-from,
-.panel-fade-leave-to {
-  opacity: 0;
-  transform: translateY(10px);
-}
-
 @media (max-width: 1380px) {
   .workspace {
     grid-template-columns: minmax(0, 1fr) 300px;
@@ -176,15 +136,6 @@ const hideDroneInfo = () => {
 
   .map-stage {
     min-height: 520px;
-  }
-
-  .drone-overlay {
-    position: absolute;
-    top: 0.75rem;
-    left: 0.75rem;
-    right: 0.75rem;
-    margin: 0;
-    width: auto !important;
   }
 
   .map-caption {
