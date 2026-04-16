@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 
-from app.models.drone import DroneState
+from app.models.drone import DroneState, PsdkDataMessage, StreamMessage
 from app.mqtt.client import MqttClient
 from app.mqtt import topics
 from app.websocket.manager import WebSocketManager
@@ -45,18 +45,18 @@ class DataDispatcher:
         self.storage = storage
         self._last_alert_time: float = 0
 
-    async def dispatch(self, state: DroneState) -> None:
+    async def dispatch(self, message: StreamMessage) -> None:
         """
-        分发无人机状态数据
-
-        并行执行三个任务：
-        1. 发布到 MQTT
-        2. 广播到 WebSocket
-        3. 存储到数据库
+        分发解析后的流消息
 
         Args:
-            state: 解析后的无人机状态
+            message: 解析后的流消息
         """
+        if isinstance(message, PsdkDataMessage):
+            await self._dispatch_psdk_data(message)
+            return
+
+        state = message
         logger.info(
             "分发遥测数据",
             drone_id=state.drone_id,
@@ -139,3 +139,22 @@ class DataDispatcher:
             for alert in alerts:
                 await self.ws.broadcast_json({"type": "alert", "data": alert})
                 logger.warning("告警触发", alert_type=alert["type"], message=alert["message"])
+
+    async def _dispatch_psdk_data(self, message: PsdkDataMessage) -> None:
+        """Broadcast PSDK raw data without affecting flight state."""
+        logger.info(
+            "分发 PSDK 原始数据",
+            payload_index=message.payload_index,
+            ws_clients=self.ws.connection_count,
+        )
+
+        results = await asyncio.gather(
+            self.ws.broadcast_json(message.model_dump(mode="json")),
+            self.storage.save_psdk_data(message),
+            return_exceptions=True,
+        )
+
+        task_names = ["WebSocket", "RawHistory"]
+        for name, result in zip(task_names, results):
+            if isinstance(result, Exception):
+                logger.error(f"{name} PSDK 分发失败", error=str(result))

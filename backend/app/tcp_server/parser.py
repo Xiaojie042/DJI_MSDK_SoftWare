@@ -16,7 +16,7 @@ import time
 from datetime import datetime
 from typing import Any, Optional
 
-from app.models.drone import BatteryInfo, DroneState, GpsPosition, Velocity
+from app.models.drone import BatteryInfo, DroneState, GpsPosition, PsdkDataMessage, StreamMessage, Velocity
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -25,14 +25,14 @@ _MISSING = object()
 
 
 class TcpDataParser:
-    """Parse TCP byte streams into ``DroneState`` objects."""
+    """Parse TCP byte streams into normalized stream messages."""
 
     def __init__(self):
         self._buffer = ""
         self._json_decoder = json.JSONDecoder()
         self._utf8_decoder = codecs.getincrementaldecoder("utf-8")()
 
-    def feed(self, data: bytes) -> list[DroneState]:
+    def feed(self, data: bytes) -> list[StreamMessage]:
         """
         Feed raw TCP bytes and return parsed telemetry messages.
 
@@ -47,7 +47,7 @@ class TcpDataParser:
             logger.warning("TCP payload is not valid UTF-8", error=str(exc))
             return []
 
-        results: list[DroneState] = []
+        results: list[StreamMessage] = []
 
         while True:
             chunk = self._buffer.lstrip()
@@ -75,17 +75,23 @@ class TcpDataParser:
                     logger.warning("Skipping invalid JSON line", error=str(exc), raw=line[:200])
                     continue
 
-                state = self._build_state(payload)
-                if state:
-                    results.append(state)
+                message = self._build_message(payload)
+                if message:
+                    results.append(message)
                 continue
 
             self._buffer = chunk[end:]
-            state = self._build_state(payload)
-            if state:
-                results.append(state)
+            message = self._build_message(payload)
+            if message:
+                results.append(message)
 
         return results
+
+    def _build_message(self, payload: Any) -> Optional[StreamMessage]:
+        if isinstance(payload, dict) and payload.get("type") == "psdk_data":
+            return self._build_psdk_message(payload)
+
+        return self._build_state(payload)
 
     def _build_state(self, payload: Any) -> Optional[DroneState]:
         """Convert a decoded JSON payload into a normalized ``DroneState``."""
@@ -182,6 +188,29 @@ class TcpDataParser:
             return state
         except Exception as exc:
             logger.error("Failed to build DroneState", error=str(exc))
+            return None
+
+    def _build_psdk_message(self, payload: Any) -> Optional[PsdkDataMessage]:
+        """Convert PSDK JSON payload into a dedicated message object."""
+        if not isinstance(payload, dict):
+            return None
+
+        try:
+            message = PsdkDataMessage(
+                type="psdk_data",
+                timestamp=self._extract_timestamp(payload),
+                payload_index=self._extract_string(payload, ["payload_index"], default=""),
+                data=self._extract_string(payload, ["data"], default=""),
+                raw_payload=payload,
+            )
+            logger.debug(
+                "PSDK data parsed successfully",
+                payload_index=message.payload_index,
+                data_preview=message.data[:80],
+            )
+            return message
+        except Exception as exc:
+            logger.error("Failed to build PsdkDataMessage", error=str(exc))
             return None
 
     def _extract_latitude(self, payload: dict) -> float:

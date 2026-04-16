@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useDroneStore } from '@/stores/droneStore'
+import SignalIcon from '@/components/icons/SignalIcon.vue'
 
 const store = useDroneStore()
 
@@ -18,6 +19,7 @@ const linkQuality = computed(() => {
   if (store.droneState.rc_signal === null || store.droneState.rc_signal === undefined) {
     return {
       text: '--',
+      level: 0,
       isWarning: false
     }
   }
@@ -25,6 +27,7 @@ const linkQuality = computed(() => {
   const quality = Math.max(0, Math.min(5, Math.round(store.droneState.rc_signal / 20)))
   return {
     text: `${quality}/5`,
+    level: quality,
     isWarning: quality < 3
   }
 })
@@ -54,6 +57,7 @@ const droneBattery = computed(() => ({
     </div>
 
     <div class="status-bar">
+      <!-- 飞行状态 -->
       <div class="status-item">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
           <path d="M12 2L2 7l10 5 10-5-10-5z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
@@ -64,30 +68,25 @@ const droneBattery = computed(() => ({
         </span>
       </div>
 
-      <div class="status-item" :class="{ warning: linkQuality.isWarning }">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <path d="M5 12.55a11 11 0 0 1 14.08 0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-          <path d="M8.5 16.5a6 6 0 0 1 7 0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-          <circle cx="12" cy="20" r="1" fill="currentColor" />
-        </svg>
+      <!-- 图传信号 - 使用新的 SignalIcon 组件 -->
+      <div class="status-item signal-item" :class="{ warning: linkQuality.isWarning }">
+        <SignalIcon :signal-level="linkQuality.level" />
         <span class="value">{{ linkQuality.text }}</span>
       </div>
 
+      <!-- GPS 信号 - 使用 emoji -->
       <div class="status-item" :class="{ warning: gpsSignal.isWarning }">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <path d="M12 2v20M2 12h20M5 5l14 14M19 5L5 19" stroke-width="1.7" stroke-linecap="round" />
-        </svg>
+        <span class="emoji-icon">🛰️</span>
         <span class="value">{{ gpsSignal.value }}/5</span>
       </div>
 
+      <!-- 遥控器信号 - 使用 emoji -->
       <div class="status-item" :class="{ warning: rcSignal.isWarning }">
-        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <path d="M7 9a5 5 0 0 1 10 0v6a3 3 0 0 1-3 3h-4a3 3 0 0 1-3-3V9Z" stroke-width="2" />
-          <path d="M9 6V4M15 6V4" stroke-width="2" stroke-linecap="round" />
-        </svg>
+        <span class="emoji-icon">🎮</span>
         <span class="value">{{ rcSignal.text }}</span>
       </div>
 
+      <!-- 无人机电池 -->
       <div class="status-item" :class="{ danger: droneBattery.isDanger }">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
           <rect x="2" y="7" width="18" height="10" rx="2" stroke-width="2" />
@@ -156,6 +155,14 @@ const droneBattery = computed(() => ({
   transition: color 0.2s ease;
 }
 
+.status-item .emoji-icon {
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+
 .status-item .value {
   font-size: 0.9rem;
   font-weight: 600;
@@ -168,9 +175,20 @@ const droneBattery = computed(() => ({
   color: var(--success);
 }
 
+/* 信号图标特殊样式 */
+.status-item.signal-item {
+  padding: 0.5rem 1rem;
+}
+
+/* 警告状态 */
 .status-item.warning .icon,
 .status-item.warning .value {
   color: var(--warning);
+}
+
+.status-item.warning .emoji-icon {
+  opacity: 1;
+  filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.6));
 }
 
 .status-item.warning {
@@ -178,9 +196,15 @@ const droneBattery = computed(() => ({
   background: rgba(245, 158, 11, 0.08);
 }
 
+/* 危险状态 */
 .status-item.danger .icon,
 .status-item.danger .value {
   color: var(--danger);
+}
+
+.status-item.danger .emoji-icon {
+  opacity: 1;
+  filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.8));
 }
 
 .status-item.danger {

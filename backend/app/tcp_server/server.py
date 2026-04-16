@@ -10,13 +10,13 @@ from typing import Optional, Callable, Awaitable
 
 from app.config import settings
 from app.tcp_server.parser import TcpDataParser
-from app.models.drone import DroneState
+from app.models.drone import StreamMessage
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# 数据回调类型: 接收 DroneState 后的处理函数
-DataCallback = Callable[[DroneState], Awaitable[None]]
+# 数据回调类型: 接收解析后的流消息
+DataCallback = Callable[[StreamMessage], Awaitable[None]]
 
 
 class DroneTcpServer:

@@ -572,6 +572,17 @@ export const useDroneStore = defineStore('drone', {
 
       schedulePersistence(this)
     },
+    addRawFrame(framePayload, fallbackTimestamp = null) {
+      const rawFrame = buildRawStreamFrame(framePayload, fallbackTimestamp)
+
+      this.rawStream.push(rawFrame)
+
+      if (this.rawStream.length > RAW_STREAM_LIMIT) {
+        this.rawStream.shift()
+      }
+
+      schedulePersistence(this)
+    },
     hydrateFromBackend(historyRecords = [], rawRecords = []) {
       const normalizedHistory = Array.isArray(historyRecords)
         ? historyRecords.map((record) => normalizeDroneStatePayload(record)).filter(Boolean)

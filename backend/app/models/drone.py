@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 from pydantic import BaseModel, Field
 from sqlalchemy import Column, Float, Integer, String, Text, create_engine
@@ -68,6 +68,19 @@ class DroneState(BaseModel):
 
     # 原始遥测 JSON
     raw_payload: Optional[Dict[str, Any]] = Field(default=None, description="原始遥测 JSON")
+
+
+class PsdkDataMessage(BaseModel):
+    """PSDK / 气象设备原始数据消息"""
+
+    type: str = Field(default="psdk_data", description="消息类型")
+    timestamp: float = Field(default_factory=time.time, description="Unix 时间戳")
+    payload_index: str = Field(default="", description="负载端口")
+    data: str = Field(default="", description="设备原始数据")
+    raw_payload: Optional[Dict[str, Any]] = Field(default=None, description="原始 JSON")
+
+
+StreamMessage = Union[DroneState, PsdkDataMessage]
 
 
 # ─── SQLAlchemy 模型 (数据库持久化) ─────────────────────────

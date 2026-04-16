@@ -11,6 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from app.models.drone import PsdkDataMessage
 from app.tcp_server.parser import TcpDataParser
 
 
@@ -165,6 +166,21 @@ class TestTcpDataParser:
         assert len(results) == 2
         assert results[0].battery.percent == 60
         assert results[1].battery.percent == 59
+
+    def test_parse_psdk_payload(self):
+        data = {
+            "type": "psdk_data",
+            "timestamp": "2026-04-15 17:31:21",
+            "payload_index": "PORT_3",
+            "data": ":01,16,0.00,24.0,63.7,1003.9,44,,,,,0,0.00,0,0.000000,0.000000,,,,,,,0.0,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,0,,1F\r\n",
+        }
+
+        results = self.parser.feed(self._make_json_line(data))
+        assert len(results) == 1
+        assert isinstance(results[0], PsdkDataMessage)
+        assert results[0].payload_index == "PORT_3"
+        assert results[0].data == data["data"]
+        assert results[0].raw_payload == data
 
 
 if __name__ == "__main__":

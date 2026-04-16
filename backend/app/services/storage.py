@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
-from app.models.drone import Base, DroneState, FlightRecord
+from app.models.drone import Base, DroneState, FlightRecord, PsdkDataMessage
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -92,12 +92,30 @@ class StorageService:
         await asyncio.to_thread(self._append_raw_history, state)
         logger.debug("Telemetry persisted", drone_id=state.drone_id)
 
+    async def save_psdk_data(self, message: PsdkDataMessage) -> None:
+        """Persist PSDK raw message into local JSONL history."""
+        await asyncio.to_thread(self._append_psdk_history, message)
+        logger.debug("PSDK raw data persisted", payload_index=message.payload_index)
+
     def _append_raw_history(self, state: DroneState) -> None:
         payload = {
             "stored_at": time.time(),
+            "type": "flight_data",
             "drone_id": state.drone_id,
             "telemetry": self._build_normalized_payload(state),
             "raw_payload": self._build_raw_payload(state),
+        }
+        with self._raw_history_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+    def _append_psdk_history(self, message: PsdkDataMessage) -> None:
+        payload = {
+            "stored_at": time.time(),
+            "type": "psdk_data",
+            "timestamp": message.timestamp,
+            "payload_index": message.payload_index,
+            "data": message.data,
+            "raw_payload": message.raw_payload or {},
         }
         with self._raw_history_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")

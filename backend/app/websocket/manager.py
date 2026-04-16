@@ -10,7 +10,7 @@ from typing import Set
 
 from fastapi import WebSocket
 
-from app.models.drone import DroneState
+from app.models.drone import StreamMessage
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -38,18 +38,18 @@ class WebSocketManager:
         self._connections.discard(websocket)
         logger.info("WebSocket 客户端已断开", total=len(self._connections))
 
-    async def broadcast(self, state: DroneState) -> None:
+    async def broadcast(self, message: StreamMessage) -> None:
         """
         向所有已连接的 WebSocket 客户端广播无人机状态
 
         Args:
-            state: 无人机状态数据
+            message: 解析后的实时消息
         """
         if not self._connections:
             return
 
         # 序列化一次，广播给所有客户端
-        payload = state.model_dump_json()
+        payload = message.model_dump_json()
 
         disconnected: list[WebSocket] = []
 

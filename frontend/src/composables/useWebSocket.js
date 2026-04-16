@@ -86,6 +86,8 @@ export function useWebSocket() {
           const data = JSON.parse(event.data)
           if (data.type === 'alert') {
             store.addAlert(data.data)
+          } else if (data.type === 'psdk_data') {
+            store.addRawFrame(data, data.timestamp)
           } else if (data.drone_id || data.droneId || data.telemetry) {
             store.updateDroneState(data)
           }

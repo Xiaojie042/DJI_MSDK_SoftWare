@@ -47,8 +47,12 @@ class FlightHistoryResponse(BaseModel):
 
 class RawHistoryRecordResponse(BaseModel):
     stored_at: float
-    drone_id: str
-    telemetry: dict[str, Any]
+    drone_id: Optional[str] = None
+    type: Optional[str] = None
+    telemetry: Optional[dict[str, Any]] = None
+    timestamp: Optional[float] = None
+    payload_index: Optional[str] = None
+    data: Optional[str] = None
     raw_payload: Optional[dict[str, Any]] = None
 
 
