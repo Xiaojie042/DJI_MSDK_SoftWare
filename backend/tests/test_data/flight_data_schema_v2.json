@@ -1,0 +1,1027 @@
+{
+  "name": "flight_data_forwarding_schema",
+  "schema_version": 2,
+  "sdk_version": "DJI MSDK V5 5.17.0",
+  "generated_from": [
+    "android-sdk-v5-uxsdk/src/main/java/dji/v5/ux/payload/flightdata/FlightDataJsonBuilder.java",
+    "android-sdk-v5-uxsdk/src/main/java/dji/v5/ux/payload/flightdata/FlightDataForwardingManager.java"
+  ],
+  "emission_rules": [
+    "All fields are omitted when the corresponding SDK value is null.",
+    "Enum values are emitted as enum.name() strings.",
+    "Ranges marked model_dependent mean the public SDK usage here does not expose a fixed universal min/max."
+  ],
+  "transport": {
+    "default_host": "192.168.3.31",
+    "default_port": 9999,
+    "port_range": {
+      "min": 1,
+      "max": 65535
+    },
+    "allowed_update_frequency_hz": [
+      1,
+      5,
+      10
+    ]
+  },
+  "enum_sets": {
+    "FlightMode": [
+      "MANUAL",
+      "ATTI",
+      "GPS_NORMAL",
+      "POI",
+      "TAKE_OFF_READY",
+      "AUTO_TAKE_OFF",
+      "AUTO_LANDING",
+      "WAYPOINT",
+      "GO_HOME",
+      "VIRTUAL_STICK",
+      "SMART_FLIGHT",
+      "PANO",
+      "GPS_SPORT",
+      "GPS_TRIPOD",
+      "AUTO_AVOIDANCE",
+      "SMART_FLY",
+      "FORCE_LANDING",
+      "ATTI_LANDING",
+      "CLICK_GO",
+      "CINEMATIC",
+      "DRAW",
+      "FOLLOW_ME",
+      "GPS_NOVICE",
+      "QUICK_MOVIE",
+      "TAP_FLY",
+      "MASTER_SHOT",
+      "APAS",
+      "TIME_LAPSE",
+      "MOTOR_START",
+      "UNKNOWN"
+    ],
+    "FCFlightMode": [
+      "MANUAL",
+      "ATTI",
+      "ATTI_CL",
+      "ATTI_HOVER",
+      "HOVER",
+      "GPS_BRAKE",
+      "GPS_ATTI",
+      "GPS_CL",
+      "GPS_HOMELOCK",
+      "GPS_HOTPOINT",
+      "ASSISTED_TAKE_OFF",
+      "AUTO_TAKE_OFF",
+      "AUTO_LANDING",
+      "ATTI_LANDING",
+      "NAVI_GO",
+      "GO_HOME",
+      "CLICK_GO",
+      "JOYSTICK",
+      "GPS_ATTI_WRISTBAND",
+      "CINEMATIC",
+      "ATTI_LIMITED",
+      "DRAW",
+      "FOLLOW_ME",
+      "ACTIVE_TRACK",
+      "TAP_FLY",
+      "PANO",
+      "FARMING",
+      "FPV",
+      "GPS_SPORT",
+      "GPS_NOVICE",
+      "CONFIRM_LANDING",
+      "NOE",
+      "GESTURE_CONTROL",
+      "QUICK_MOVIE",
+      "TRIPOD_GPS",
+      "ACTIVE_TRACK_COURSE_LOCK",
+      "MOTOR_START",
+      "FIXED_WING",
+      "APAS",
+      "PALM_LAUNCH",
+      "NAVI_GO_NEW",
+      "TIME_LAPSE",
+      "DANCING",
+      "JUMPING",
+      "ADSB_ACTION",
+      "VISION_POI",
+      "NAVI_SUBMODE_TA",
+      "FAULT_TOLERANT",
+      "PRE_MANUAL",
+      "FLASHLIGHT",
+      "FLASHLIGHT_SPORT",
+      "FLASHLIGHT_ATTI",
+      "ROLLOVER_RESCUE",
+      "MASTER_SHOT",
+      "TAKEOFF",
+      "GO_TARGET_POINT",
+      "FARM_WORK",
+      "FIREFLY",
+      "FIREFLY_EXIT",
+      "COMMANDER_MODE",
+      "BASE_LANDING",
+      "BACKUP_GO_HOME",
+      "BACKUP_LANDING",
+      "TRANSPORT_DIVERT",
+      "SPOTLIGHT_NORMAL",
+      "SPOTLIGHT_TRIPOD",
+      "SPOTLIGHT_SPORT",
+      "TRANSPORT_HOIST_ASSIST",
+      "QUICKTAKEOFF_ASSIST",
+      "VISUAL_EXPLORATION",
+      "FLYTO_LIVE_TARGET",
+      "SDR_QUALITY_DETECT",
+      "DEPARTURE_WAYLINE_TEST",
+      "CALI_POWER_MODEL",
+      "CABLE_FOLLOW",
+      "CABLE_INSPECTION",
+      "LOCK_YAW",
+      "AUTO_EXPLORE",
+      "UNKNOWN"
+    ],
+    "GPSSignalLevel": [
+      "LEVEL_0",
+      "LEVEL_1",
+      "LEVEL_2",
+      "LEVEL_3",
+      "LEVEL_4",
+      "LEVEL_5",
+      "LEVEL_10",
+      "LEVEL_NONE",
+      "UNKNOWN"
+    ],
+    "BatteryThresholdBehavior": [
+      "FLY_NORMALLY",
+      "GO_HOME",
+      "LAND_IMMEDIATELY",
+      "UNKNOWN"
+    ],
+    "FailsafeAction": [
+      "HOVER",
+      "LANDING",
+      "GOHOME",
+      "UNKNOWN"
+    ],
+    "WindDirection": [
+      "WINDLESS",
+      "NORTH",
+      "NORTH_EAST",
+      "EAST",
+      "SOUTH_EAST",
+      "SOUTH",
+      "SOUTH_WEST",
+      "WEST",
+      "NORTH_WEST",
+      "UNKNOWN"
+    ],
+    "WindWarning": [
+      "LEVEL_0",
+      "LEVEL_1",
+      "LEVEL_2",
+      "UNKNOWN"
+    ],
+    "LandingProtectionState": [
+      "NONE",
+      "ANALYZING",
+      "ANALYSIS_FAILED",
+      "SAFE_TO_LAND",
+      "NOT_SAFE_TO_LAND",
+      "UNKNOWN"
+    ],
+    "RCMode": [
+      "HOST",
+      "SLAVE",
+      "MASTER_SUB",
+      "SLAVE_SUB",
+      "CHANNEL_A",
+      "CHANNEL_B",
+      "NORMAL",
+      "UNKNOWN"
+    ],
+    "ProductType": [
+      "UNRECOGNIZED",
+      "OSMO",
+      "P4",
+      "MAVIC_PRO",
+      "OSMO_PRO",
+      "OSMO_RAW",
+      "OSMO_PLUS",
+      "P4P",
+      "P4A",
+      "P4R",
+      "OSMO_MOBILE1",
+      "MAVIC_AIR",
+      "OSMO_ACTION",
+      "OSMO_POCKET",
+      "MAVIC_2",
+      "P4P_V2",
+      "OSMO_MOBILE2",
+      "MAVIC_2_ENTERPRISE",
+      "MAVIC_MINI",
+      "M200_V2_SERIES",
+      "M200_V2_PRO",
+      "M200_V2_RTK",
+      "MG_T16",
+      "DRTK_2",
+      "OSMO_MOBILE3",
+      "MAVIC_AIR_2",
+      "M300_RTK",
+      "M350_RTK",
+      "FPV_SERIAL_2",
+      "DJI_AIR_2S",
+      "MAVIC_MINI_2",
+      "DJI_MINI_3_PRO",
+      "OSMO_MOBILE5",
+      "OSMO_ACTION_2",
+      "OSMO_ACTION_2_HASSELBLAD",
+      "AC202",
+      "HG212",
+      "MG_T20",
+      "NOT_SUPPORTED_1",
+      "NOT_SUPPORTED_2",
+      "NOT_SUPPORTED_3",
+      "NOT_SUPPORTED_4",
+      "DJI_MINI_3",
+      "DJI_MINI_4_PRO",
+      "OSMO_POCKET2",
+      "OSMO_MOBILE4",
+      "OSMO_MOBILE6",
+      "OSMO_MOBILE5_SE",
+      "DJI_MAVIC_3",
+      "NOT_SUPPORTED_5",
+      "MAVIC_MINI_SE",
+      "M30_SERIES",
+      "NOT_SUPPORTED_6",
+      "DJI_MAVIC_3_ENTERPRISE_SERIES",
+      "NOT_SUPPORTED_7",
+      "NOT_SUPPORTED_8",
+      "NOT_SUPPORTED_9",
+      "NOT_SUPPORTED_10",
+      "DJI_MATRICE_4_SERIES",
+      "WA525",
+      "NOT_SUPPORTED_11",
+      "DJI_MATRICE_4D_SERIES",
+      "DJI_MATRICE_400",
+      "NOT_SUPPORTED_14",
+      "UNKNOWN"
+    ],
+    "FCAutoRTHReason": [
+      "NONE",
+      "WARNING_POWER_GOHOME",
+      "WARNING_POWER_LANDING",
+      "SMART_POWER_GOHOME",
+      "SMART_POWER_LANDING",
+      "LOW_VOLTAGE_GOHOME",
+      "LOW_VOLTAGE_LANDING",
+      "SERIOUS_LOW_VOLTAGE_LANDING",
+      "RC_ONEKEY_GOHOME",
+      "RC_ASSISTANT_TAKEOFF",
+      "RC_AUTO_TAKEOFF",
+      "RC_AUTO_LANDING",
+      "APP_AUTO_GOHOME",
+      "APP_AUTO_LANDING",
+      "APP_AUTO_TAKEOFF",
+      "OUTOF_CONTROL_GOHOME",
+      "API_AUTO_TAKEOFF",
+      "API_AUTO_LANDING",
+      "API_AUTO_GOHOME",
+      "AVOID_GROUND_LANDING",
+      "NO_FLY_ZONE_LANDING",
+      "TOO_CLOSE_GOHOME_LANDING",
+      "TOO_FAR_GOHOME_LANDING",
+      "APP_WP_MISSION",
+      "WP_AUTO_TAKEOFF",
+      "GOHOME_AVOID",
+      "GOHOME_FINISH",
+      "VERT_LOW_LIMIT_LANDING",
+      "BATTERY_FORCE_LANDING",
+      "MC_PROTECT_GOHOME",
+      "MOTOR_STUCK_LANDING",
+      "APP_REQUEST_FORCE_LANDING",
+      "UNAUTH_BATTERY_LANDING",
+      "RTH_COMING_OBSTACLE_LANDING",
+      "IMU_ERROR_RTH",
+      "ON_HAND_LANDING",
+      "ON_HAND_TAKEOFF",
+      "EXTERN_MODULE_TEMP_TOO_HIGH_GOHOME",
+      "PALM_LAND",
+      "EXTERN_MODULE_TEMP_TOO_HIGH_LANDING",
+      "GOHOME_FOR_NO_PESTICIDE",
+      "HEIGHT_CTRL_FAIL",
+      "MOTOR_OVERLOAD_LANDING",
+      "USE_BATTERY_BACKUP_LANDING",
+      "BATTERY_CURRENT_PROTECT_LANDING",
+      "MANUAL_VIDEO_LOST_GOHOME",
+      "BATTERY_MOS_ABNORMAL",
+      "VIDEO_LOST_LANDING",
+      "RC_LOST_LANDING",
+      "MC_PROTECT_LANDING",
+      "FAN_ABNORMAL_GOHOME",
+      "SMART_BATTERY_GOHOME_LANDING",
+      "AP_WORK_MODE",
+      "EXTEND_TASK_ABNORMAL",
+      "BATTERY_DIAGNOSIS_PROTECT",
+      "RC_LOST_HOVER",
+      "STRONG_WIND_GOHOME",
+      "UNKNOWN"
+    ]
+  },
+  "fields": {
+    "type": {
+      "type": "string",
+      "source": "constant",
+      "range": [
+        "flight_data"
+      ]
+    },
+    "schema_version": {
+      "type": "integer",
+      "source": "constant",
+      "range": [
+        2
+      ]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "yyyy-MM-dd HH:mm:ss.SSS"
+    },
+    "attitude.pitch": {
+      "type": "double",
+      "unit": "degree",
+      "source_key": "FlightControllerKey.KeyAircraftAttitude",
+      "range_kind": "model_dependent",
+      "typical_range": [
+        -180.0,
+        180.0
+      ]
+    },
+    "attitude.roll": {
+      "type": "double",
+      "unit": "degree",
+      "source_key": "FlightControllerKey.KeyAircraftAttitude",
+      "range_kind": "model_dependent",
+      "typical_range": [
+        -180.0,
+        180.0
+      ]
+    },
+    "attitude.yaw": {
+      "type": "double",
+      "unit": "degree",
+      "source_key": "FlightControllerKey.KeyAircraftAttitude",
+      "range_kind": "model_dependent",
+      "typical_range": [
+        -180.0,
+        180.0
+      ]
+    },
+    "location.latitude": {
+      "type": "double",
+      "unit": "degree",
+      "source_key": "FlightControllerKey.KeyAircraftLocation3D",
+      "range_kind": "exact",
+      "range": [
+        -90.0,
+        90.0
+      ]
+    },
+    "location.longitude": {
+      "type": "double",
+      "unit": "degree",
+      "source_key": "FlightControllerKey.KeyAircraftLocation3D",
+      "range_kind": "exact",
+      "range": [
+        -180.0,
+        180.0
+      ]
+    },
+    "location.altitude": {
+      "type": "double",
+      "unit": "meter",
+      "source_key": "FlightControllerKey.KeyAircraftLocation3D",
+      "range_kind": "model_dependent"
+    },
+    "altitude": {
+      "type": "double",
+      "unit": "meter",
+      "source": "duplicate of location.altitude"
+    },
+    "velocity.x": {
+      "type": "double",
+      "unit": "meter_per_second",
+      "source_key": "FlightControllerKey.KeyAircraftVelocity",
+      "range_kind": "model_dependent"
+    },
+    "velocity.y": {
+      "type": "double",
+      "unit": "meter_per_second",
+      "source_key": "FlightControllerKey.KeyAircraftVelocity",
+      "range_kind": "model_dependent"
+    },
+    "velocity.z": {
+      "type": "double",
+      "unit": "meter_per_second",
+      "source_key": "FlightControllerKey.KeyAircraftVelocity",
+      "range_kind": "model_dependent"
+    },
+    "velocity.horizontal_speed": {
+      "type": "double",
+      "unit": "meter_per_second",
+      "source": "sqrt(x^2+y^2)",
+      "range_kind": "derived_non_negative",
+      "min": 0.0
+    },
+    "velocity.total_speed": {
+      "type": "double",
+      "unit": "meter_per_second",
+      "source": "sqrt(x^2+y^2+z^2)",
+      "range_kind": "derived_non_negative",
+      "min": 0.0
+    },
+    "horizontal_speed": {
+      "type": "double",
+      "unit": "meter_per_second",
+      "source": "duplicate of velocity.horizontal_speed",
+      "range_kind": "derived_non_negative",
+      "min": 0.0
+    },
+    "speed_total": {
+      "type": "double",
+      "unit": "meter_per_second",
+      "source": "duplicate of velocity.total_speed",
+      "range_kind": "derived_non_negative",
+      "min": 0.0
+    },
+    "flight_mode": {
+      "type": "string",
+      "source_key": "FlightControllerKey.KeyFlightMode",
+      "enum_ref": "FlightMode"
+    },
+    "home_location.latitude": {
+      "type": "double",
+      "unit": "degree",
+      "source_key": "FlightControllerKey.KeyHomeLocation",
+      "range_kind": "exact",
+      "range": [
+        -90.0,
+        90.0
+      ]
+    },
+    "home_location.longitude": {
+      "type": "double",
+      "unit": "degree",
+      "source_key": "FlightControllerKey.KeyHomeLocation",
+      "range_kind": "exact",
+      "range": [
+        -180.0,
+        180.0
+      ]
+    },
+    "battery_percentage": {
+      "type": "integer",
+      "unit": "percent",
+      "source_key": "BatteryKey.KeyChargeRemainingInPercent(Aggregation)",
+      "range_kind": "percent",
+      "range": [
+        0,
+        100
+      ]
+    },
+    "is_flying": {
+      "type": "boolean",
+      "source_key": "FlightControllerKey.KeyIsFlying"
+    },
+    "aircraft_name": {
+      "type": "string",
+      "source_key": "FlightControllerKey.KeyAircraftName",
+      "range_kind": "free_text"
+    },
+    "product_type": {
+      "type": "string",
+      "source_key": "ProductKey.KeyProductType",
+      "enum_ref": "ProductType"
+    },
+    "product_firmware_version": {
+      "type": "string",
+      "source_key": "ProductKey.KeyFirmwareVersion",
+      "range_kind": "free_text"
+    },
+    "flight_controller_serial_number": {
+      "type": "string",
+      "source_key": "FlightControllerKey.KeySerialNumber",
+      "range_kind": "free_text"
+    },
+    "flight_controller_connected": {
+      "type": "boolean",
+      "source_key": "FlightControllerKey.KeyConnection"
+    },
+    "remote_controller_connected": {
+      "type": "boolean",
+      "source_key": "RemoteControllerKey.KeyConnection"
+    },
+    "aircraft_heading": {
+      "type": "double",
+      "unit": "degree",
+      "source_key": "FlightControllerKey.KeyCompassHeading",
+      "range_kind": "model_dependent",
+      "typical_range": [
+        0.0,
+        360.0
+      ]
+    },
+    "relative_altitude": {
+      "type": "double",
+      "unit": "meter",
+      "source_key": "FlightControllerKey.KeyAltitude",
+      "range_kind": "model_dependent"
+    },
+    "gps_satellite_count": {
+      "type": "integer",
+      "unit": "count",
+      "source_key": "FlightControllerKey.KeyGPSSatelliteCount",
+      "range_kind": "non_negative",
+      "min": 0
+    },
+    "gps_signal_level": {
+      "type": "string",
+      "source_key": "FlightControllerKey.KeyGPSSignalLevel",
+      "enum_ref": "GPSSignalLevel"
+    },
+    "flight_mode_string": {
+      "type": "string",
+      "source_key": "FlightControllerKey.KeyFlightModeString",
+      "range_kind": "free_text"
+    },
+    "fc_flight_mode": {
+      "type": "string",
+      "source_key": "FlightControllerKey.KeyFCFlightMode",
+      "enum_ref": "FCFlightMode"
+    },
+    "are_motors_on": {
+      "type": "boolean",
+      "source_key": "FlightControllerKey.KeyAreMotorsOn"
+    },
+    "is_in_landing_mode": {
+      "type": "boolean",
+      "source_key": "FlightControllerKey.KeyIsInLandingMode"
+    },
+    "is_landing_confirmation_needed": {
+      "type": "boolean",
+      "source_key": "FlightControllerKey.KeyIsLandingConfirmationNeeded"
+    },
+    "flight_time_in_seconds": {
+      "type": "integer",
+      "unit": "second",
+      "source_key": "FlightControllerKey.KeyFlightTimeInSeconds",
+      "range_kind": "non_negative",
+      "min": 0
+    },
+    "go_home_height": {
+      "type": "integer",
+      "unit": "meter",
+      "source_key": "FlightControllerKey.KeyGoHomeHeight",
+      "range_kind": "non_negative",
+      "min": 0
+    },
+    "height_limit": {
+      "type": "integer",
+      "unit": "meter",
+      "source_key": "FlightControllerKey.KeyHeightLimit",
+      "range_kind": "non_negative",
+      "min": 0
+    },
+    "distance_limit_enabled": {
+      "type": "boolean",
+      "source_key": "FlightControllerKey.KeyDistanceLimitEnabled"
+    },
+    "distance_limit": {
+      "type": "integer",
+      "unit": "meter",
+      "source_key": "FlightControllerKey.KeyDistanceLimit",
+      "range_kind": "non_negative",
+      "min": 0
+    },
+    "battery_percent_needed_to_go_home": {
+      "type": "integer",
+      "unit": "percent",
+      "source_key": "FlightControllerKey.KeyBatteryPercentNeededToGoHome",
+      "range_kind": "percent",
+      "range": [
+        0,
+        100
+      ]
+    },
+    "low_battery_warning_threshold": {
+      "type": "integer",
+      "unit": "percent",
+      "source_key": "FlightControllerKey.KeyLowBatteryWarningThreshold",
+      "range_kind": "percent",
+      "range": [
+        0,
+        100
+      ]
+    },
+    "serious_low_battery_warning_threshold": {
+      "type": "integer",
+      "unit": "percent",
+      "source_key": "FlightControllerKey.KeySeriousLowBatteryWarningThreshold",
+      "range_kind": "percent",
+      "range": [
+        0,
+        100
+      ]
+    },
+    "battery_threshold_behavior": {
+      "type": "string",
+      "source_key": "FlightControllerKey.KeyBatteryThresholdBehavior",
+      "enum_ref": "BatteryThresholdBehavior"
+    },
+    "auto_rth_reason": {
+      "type": "string",
+      "source_key": "FlightControllerKey.KeyAutoRTHReason",
+      "enum_ref": "FCAutoRTHReason"
+    },
+    "failsafe_action": {
+      "type": "string",
+      "source_key": "FlightControllerKey.KeyFailsafeAction",
+      "enum_ref": "FailsafeAction"
+    },
+    "low_battery_rth_info.battery_percent_needed_to_land": {
+      "type": "integer",
+      "unit": "percent",
+      "source_key": "FlightControllerKey.KeyLowBatteryRTHInfo",
+      "range_kind": "percent",
+      "range": [
+        0,
+        100
+      ]
+    },
+    "low_battery_rth_info.battery_percent_needed_to_go_home": {
+      "type": "integer",
+      "unit": "percent",
+      "source_key": "FlightControllerKey.KeyLowBatteryRTHInfo",
+      "range_kind": "percent",
+      "range": [
+        0,
+        100
+      ]
+    },
+    "low_battery_rth_info.remaining_flight_time": {
+      "type": "integer",
+      "unit": "second",
+      "source_key": "FlightControllerKey.KeyLowBatteryRTHInfo",
+      "range_kind": "non_negative",
+      "min": 0
+    },
+    "wind.speed": {
+      "type": "integer",
+      "unit": "meter_per_second",
+      "source_key": "FlightControllerKey.KeyWindSpeed",
+      "range_kind": "non_negative",
+      "min": 0
+    },
+    "wind.direction": {
+      "type": "string",
+      "source_key": "FlightControllerKey.KeyWindDirection",
+      "enum_ref": "WindDirection"
+    },
+    "wind.warning": {
+      "type": "string",
+      "source_key": "FlightControllerKey.KeyWindWarning",
+      "enum_ref": "WindWarning"
+    },
+    "vps_status.vision_positioning_enabled": {
+      "type": "boolean",
+      "source_key": "FlightAssistantKey.KeyVisionPositioningEnabled"
+    },
+    "vps_status.ultrasonic_used": {
+      "type": "boolean",
+      "source_key": "FlightControllerKey.KeyIsUltrasonicUsed"
+    },
+    "vps_status.ultrasonic_height_cm": {
+      "type": "integer",
+      "unit": "centimeter",
+      "source_key": "FlightControllerKey.KeyUltrasonicHeight",
+      "range_kind": "non_negative",
+      "min": 0
+    },
+    "vps_status.landing_protection_state": {
+      "type": "string",
+      "source_key": "FlightAssistantKey.KeyLandingProtectionState",
+      "enum_ref": "LandingProtectionState"
+    },
+    "battery_status.aggregate_percentage": {
+      "type": "integer",
+      "unit": "percent",
+      "source_key": "BatteryKey.KeyChargeRemainingInPercent(Aggregation)",
+      "range_kind": "percent",
+      "range": [
+        0,
+        100
+      ]
+    },
+    "battery_status.connected_count": {
+      "type": "integer",
+      "unit": "count",
+      "source_key": "BatteryKey.KeyNumberOfConnectedBatteries(Aggregation)",
+      "range_kind": "non_negative",
+      "min": 0
+    },
+    "battery_status.any_battery_disconnected": {
+      "type": "boolean",
+      "source_key": "BatteryKey.KeyIsAnyBatteryDisconnected(Aggregation)"
+    },
+    "battery_status.cell_damaged": {
+      "type": "boolean",
+      "source_key": "BatteryKey.KeyIsCellDamaged(Aggregation)"
+    },
+    "battery_status.firmware_difference_detected": {
+      "type": "boolean",
+      "source_key": "BatteryKey.KeyIsFirmwareDifferenceDetected(Aggregation)"
+    },
+    "battery_status.voltage_difference_detected": {
+      "type": "boolean",
+      "source_key": "BatteryKey.KeyIsVoltageDifferenceDetected(Aggregation)"
+    },
+    "battery_status.low_cell_voltage_detected": {
+      "type": "boolean",
+      "source_key": "BatteryKey.KeyIsLowCellVoltageDetected(Aggregation)"
+    },
+    "battery_status.overview[].index": {
+      "type": "integer",
+      "unit": "slot_index",
+      "source_key": "BatteryKey.KeyBatteryOverviews(Aggregation)",
+      "range_kind": "non_negative",
+      "min": 0
+    },
+    "battery_status.overview[].is_connected": {
+      "type": "boolean",
+      "source_key": "BatteryKey.KeyBatteryOverviews(Aggregation)"
+    },
+    "battery_status.main_battery.index": {
+      "type": "integer",
+      "range": [
+        0,
+        0
+      ]
+    },
+    "battery_status.secondary_battery.index": {
+      "type": "integer",
+      "range": [
+        1,
+        1
+      ]
+    },
+    "battery_status.main_battery.connected": {
+      "type": "boolean",
+      "source_key": "BatteryKey.KeyConnection(0)"
+    },
+    "battery_status.secondary_battery.connected": {
+      "type": "boolean",
+      "source_key": "BatteryKey.KeyConnection(1)"
+    },
+    "battery_status.main_battery.percentage": {
+      "type": "integer",
+      "unit": "percent",
+      "source_key": "BatteryKey.KeyChargeRemainingInPercent(0)",
+      "range_kind": "percent",
+      "range": [
+        0,
+        100
+      ]
+    },
+    "battery_status.secondary_battery.percentage": {
+      "type": "integer",
+      "unit": "percent",
+      "source_key": "BatteryKey.KeyChargeRemainingInPercent(1)",
+      "range_kind": "percent",
+      "range": [
+        0,
+        100
+      ]
+    },
+    "battery_status.main_battery.temperature_celsius": {
+      "type": "double",
+      "unit": "celsius",
+      "source_key": "BatteryKey.KeyBatteryTemperature(0)",
+      "range_kind": "model_dependent"
+    },
+    "battery_status.secondary_battery.temperature_celsius": {
+      "type": "double",
+      "unit": "celsius",
+      "source_key": "BatteryKey.KeyBatteryTemperature(1)",
+      "range_kind": "model_dependent"
+    },
+    "battery_status.main_battery.voltage_mv": {
+      "type": "integer",
+      "unit": "millivolt",
+      "source_key": "BatteryKey.KeyVoltage(0)",
+      "range_kind": "positive_or_zero",
+      "min": 0
+    },
+    "battery_status.secondary_battery.voltage_mv": {
+      "type": "integer",
+      "unit": "millivolt",
+      "source_key": "BatteryKey.KeyVoltage(1)",
+      "range_kind": "positive_or_zero",
+      "min": 0
+    },
+    "battery_status.main_battery.serial_number": {
+      "type": "string",
+      "source_key": "BatteryKey.KeySerialNumber(0)",
+      "range_kind": "free_text"
+    },
+    "battery_status.secondary_battery.serial_number": {
+      "type": "string",
+      "source_key": "BatteryKey.KeySerialNumber(1)",
+      "range_kind": "free_text"
+    },
+    "battery_status.main_battery.cell_voltages_mv[]": {
+      "type": "integer",
+      "unit": "millivolt",
+      "source_key": "BatteryKey.KeyCellVoltages(0)",
+      "range_kind": "positive_or_zero",
+      "min": 0,
+      "typical_range": [
+        3000,
+        4500
+      ]
+    },
+    "battery_status.secondary_battery.cell_voltages_mv[]": {
+      "type": "integer",
+      "unit": "millivolt",
+      "source_key": "BatteryKey.KeyCellVoltages(1)",
+      "range_kind": "positive_or_zero",
+      "min": 0,
+      "typical_range": [
+        3000,
+        4500
+      ]
+    },
+    "air_link_status.connected": {
+      "type": "boolean",
+      "source_key": "AirLinkKey.KeyConnection"
+    },
+    "air_link_status.down_link_quality": {
+      "type": "integer",
+      "source_key": "AirLinkKey.KeyDownLinkQuality",
+      "range_kind": "likely_percentage",
+      "range": [
+        0,
+        100
+      ]
+    },
+    "air_link_status.down_link_quality_raw": {
+      "type": "integer",
+      "source_key": "AirLinkKey.KeyDownLinkQualityRaw",
+      "range_kind": "model_dependent"
+    },
+    "air_link_status.up_link_quality": {
+      "type": "integer",
+      "source_key": "AirLinkKey.KeyUpLinkQuality",
+      "range_kind": "likely_percentage",
+      "range": [
+        0,
+        100
+      ]
+    },
+    "air_link_status.up_link_quality_raw": {
+      "type": "integer",
+      "source_key": "AirLinkKey.KeyUpLinkQualityRaw",
+      "range_kind": "model_dependent"
+    },
+    "air_link_status.link_signal_quality": {
+      "type": "integer",
+      "source_key": "AirLinkKey.KeyLinkSignalQuality",
+      "range_kind": "likely_percentage",
+      "range": [
+        0,
+        100
+      ]
+    },
+    "air_link_status.dynamic_data_rate": {
+      "type": "double",
+      "source_key": "AirLinkKey.KeyDynamicDataRate",
+      "range_kind": "non_negative",
+      "min": 0.0
+    },
+    "air_link_status.frequency_point": {
+      "type": "integer",
+      "source_key": "AirLinkKey.KeyFrequencyPoint",
+      "range_kind": "model_dependent"
+    },
+    "air_link_status.frequency_band": {
+      "type": "string",
+      "source_key": "AirLinkKey.KeyFrequencyBand",
+      "range_kind": "enum_or_string"
+    },
+    "remote_controller_status.connected": {
+      "type": "boolean",
+      "source_key": "RemoteControllerKey.KeyConnection"
+    },
+    "remote_controller_status.mode": {
+      "type": "string",
+      "source_key": "RemoteControllerKey.KeyRcMachineMode",
+      "enum_ref": "RCMode"
+    },
+    "remote_controller_status.serial_number": {
+      "type": "string",
+      "source_key": "RemoteControllerKey.KeyRcRK3399SirialNumber",
+      "range_kind": "free_text"
+    },
+    "remote_controller_status.battery_percentage": {
+      "type": "integer",
+      "unit": "percent",
+      "source_key": "RemoteControllerKey.KeyBatteryInfo -> BatteryInfo.getBatteryPercent()",
+      "range_kind": "percent",
+      "range": [
+        0,
+        100
+      ]
+    },
+    "remote_controller_status.gps.valid": {
+      "type": "boolean",
+      "source_key": "RemoteControllerKey.KeyRcGPSInfo"
+    },
+    "remote_controller_status.gps.location.latitude": {
+      "type": "double",
+      "unit": "degree",
+      "source_key": "RemoteControllerKey.KeyRcGPSInfo",
+      "range_kind": "exact",
+      "range": [
+        -90.0,
+        90.0
+      ]
+    },
+    "remote_controller_status.gps.location.longitude": {
+      "type": "double",
+      "unit": "degree",
+      "source_key": "RemoteControllerKey.KeyRcGPSInfo",
+      "range_kind": "exact",
+      "range": [
+        -180.0,
+        180.0
+      ]
+    },
+    "gimbal_status.main_gimbal_connected": {
+      "type": "boolean",
+      "source_key": "GimbalKey.KeyConnection(LEFT_OR_MAIN)"
+    },
+    "gimbal_status.main_gimbal_attitude.pitch": {
+      "type": "double",
+      "unit": "degree",
+      "source_key": "GimbalKey.KeyGimbalAttitude(LEFT_OR_MAIN)",
+      "range_kind": "model_dependent",
+      "typical_range": [
+        -180.0,
+        180.0
+      ]
+    },
+    "gimbal_status.main_gimbal_attitude.roll": {
+      "type": "double",
+      "unit": "degree",
+      "source_key": "GimbalKey.KeyGimbalAttitude(LEFT_OR_MAIN)",
+      "range_kind": "model_dependent",
+      "typical_range": [
+        -180.0,
+        180.0
+      ]
+    },
+    "gimbal_status.main_gimbal_attitude.yaw": {
+      "type": "double",
+      "unit": "degree",
+      "source_key": "GimbalKey.KeyGimbalAttitude(LEFT_OR_MAIN)",
+      "range_kind": "model_dependent",
+      "typical_range": [
+        -180.0,
+        180.0
+      ]
+    },
+    "aircraft_status.aircraft_location.latitude": {
+      "type": "double",
+      "source": "duplicate of location.latitude"
+    },
+    "aircraft_status.aircraft_location.longitude": {
+      "type": "double",
+      "source": "duplicate of location.longitude"
+    },
+    "aircraft_status.aircraft_location.altitude": {
+      "type": "double",
+      "source": "duplicate of location.altitude"
+    },
+    "aircraft_status.home_location.latitude": {
+      "type": "double",
+      "source": "duplicate of home_location.latitude"
+    },
+    "aircraft_status.home_location.longitude": {
+      "type": "double",
+      "source": "duplicate of home_location.longitude"
+    },
+    "aircraft_status.distance_to_home": {
+      "type": "double",
+      "unit": "meter",
+      "source": "LocationUtil.distanceBetween(aircraft_location, home_location)",
+      "range_kind": "derived_non_negative",
+      "min": 0.0
+    }
+  }
+}
