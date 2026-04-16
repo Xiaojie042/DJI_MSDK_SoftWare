@@ -235,6 +235,10 @@ const buildHistoryEntry = (state) => ({
 
 const extractRawFrameData = (payload = {}) => {
   if (payload && typeof payload === 'object') {
+    if (payload.type === 'psdk_data') {
+      return payload
+    }
+
     if (payload.raw_payload && typeof payload.raw_payload === 'object') {
       return payload.raw_payload
     }

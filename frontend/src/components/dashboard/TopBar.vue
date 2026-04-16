@@ -1,7 +1,6 @@
 <script setup>
 import { computed } from 'vue'
 import { useDroneStore } from '@/stores/droneStore'
-import SignalIcon from '@/components/icons/SignalIcon.vue'
 
 const store = useDroneStore()
 
@@ -10,43 +9,74 @@ const flightStatus = computed(() => ({
   text: store.droneState.is_flying ? store.droneState.flight_mode || '飞行中' : '待命'
 }))
 
+// GPS 卫星数 - 只显示数量
 const gpsSignal = computed(() => ({
-  value: store.droneState.gps_signal ?? 0,
-  isWarning: (store.droneState.gps_signal ?? 0) < 2
+  value: store.droneState.gps_signal ?? 0
 }))
 
+// 图传信号 - 1格红色，2格黄色，3-5格绿色
 const linkQuality = computed(() => {
   if (store.droneState.rc_signal === null || store.droneState.rc_signal === undefined) {
     return {
       text: '--',
       level: 0,
-      isWarning: false
+      status: 'normal'
     }
   }
 
   const quality = Math.max(0, Math.min(5, Math.round(store.droneState.rc_signal / 20)))
+  let status = 'success' // 绿色
+  if (quality === 1) {
+    status = 'danger' // 红色
+  } else if (quality === 2) {
+    status = 'warning' // 黄色
+  }
+
   return {
     text: `${quality}/5`,
     level: quality,
-    isWarning: quality < 3
+    status
   }
 })
 
-const rcSignal = computed(() => ({
-  text:
-    store.droneState.rc_signal === null || store.droneState.rc_signal === undefined
-      ? '--'
-      : `${store.droneState.rc_signal}%`,
-  isWarning:
-    store.droneState.rc_signal !== null &&
-    store.droneState.rc_signal !== undefined &&
-    store.droneState.rc_signal < 35
-}))
+// 遥控器电量 - >50%绿色，20-50%黄色，<20%红色
+const rcSignal = computed(() => {
+  const value = store.droneState.rc_signal
+  if (value === null || value === undefined) {
+    return {
+      text: '--',
+      status: 'normal'
+    }
+  }
 
-const droneBattery = computed(() => ({
-  value: store.droneState.battery.percent || 0,
-  isDanger: (store.droneState.battery.percent || 0) < 20
-}))
+  let status = 'success' // 绿色
+  if (value < 20) {
+    status = 'danger' // 红色
+  } else if (value < 50) {
+    status = 'warning' // 黄色
+  }
+
+  return {
+    text: `${value}%`,
+    status
+  }
+})
+
+// 无人机电池 - >50%绿色，20-50%黄色，<20%红色
+const droneBattery = computed(() => {
+  const value = store.droneState.battery.percent || 0
+  let status = 'success' // 绿色
+  if (value < 20) {
+    status = 'danger' // 红色
+  } else if (value < 50) {
+    status = 'warning' // 黄色
+  }
+
+  return {
+    value,
+    status
+  }
+})
 </script>
 
 <template>
@@ -68,26 +98,26 @@ const droneBattery = computed(() => ({
         </span>
       </div>
 
-      <!-- 图传信号 - 使用新的 SignalIcon 组件 -->
-      <div class="status-item signal-item" :class="{ warning: linkQuality.isWarning }">
-        <SignalIcon :signal-level="linkQuality.level" />
+      <!-- 图传信号 -->
+      <div class="status-item" :class="linkQuality.status">
+        <span class="emoji-icon">📶</span>
         <span class="value">{{ linkQuality.text }}</span>
       </div>
 
-      <!-- GPS 信号 - 使用 emoji -->
-      <div class="status-item" :class="{ warning: gpsSignal.isWarning }">
+      <!-- GPS 卫星 -->
+      <div class="status-item">
         <span class="emoji-icon">🛰️</span>
-        <span class="value">{{ gpsSignal.value }}/5</span>
+        <span class="value">{{ gpsSignal.value }}</span>
       </div>
 
-      <!-- 遥控器信号 - 使用 emoji -->
-      <div class="status-item" :class="{ warning: rcSignal.isWarning }">
+      <!-- 遥控器信号 -->
+      <div class="status-item" :class="rcSignal.status">
         <span class="emoji-icon">🎮</span>
         <span class="value">{{ rcSignal.text }}</span>
       </div>
 
       <!-- 无人机电池 -->
-      <div class="status-item" :class="{ danger: droneBattery.isDanger }">
+      <div class="status-item" :class="droneBattery.status">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
           <rect x="2" y="7" width="18" height="10" rx="2" stroke-width="2" />
           <path d="M20 10h2v4h-2" stroke-width="2" stroke-linecap="round" />
@@ -160,7 +190,7 @@ const droneBattery = computed(() => ({
   line-height: 1;
   flex-shrink: 0;
   opacity: 0.7;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.2s ease, filter 0.2s ease;
 }
 
 .status-item .value {
@@ -175,12 +205,23 @@ const droneBattery = computed(() => ({
   color: var(--success);
 }
 
-/* 信号图标特殊样式 */
-.status-item.signal-item {
-  padding: 0.5rem 1rem;
+/* 成功状态 - 绿色 */
+.status-item.success .icon,
+.status-item.success .value {
+  color: var(--success);
 }
 
-/* 警告状态 */
+.status-item.success .emoji-icon {
+  opacity: 1;
+  filter: drop-shadow(0 0 4px rgba(16, 185, 129, 0.6));
+}
+
+.status-item.success {
+  border-color: rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+/* 警告状态 - 黄色 */
 .status-item.warning .icon,
 .status-item.warning .value {
   color: var(--warning);
@@ -196,7 +237,7 @@ const droneBattery = computed(() => ({
   background: rgba(245, 158, 11, 0.08);
 }
 
-/* 危险状态 */
+/* 危险状态 - 红色 */
 .status-item.danger .icon,
 .status-item.danger .value {
   color: var(--danger);
