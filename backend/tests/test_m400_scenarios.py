@@ -16,8 +16,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.models.drone import DroneState
-from app.services.telemetry_scenarios import build_m400_mission_scenario
+from app.models.drone import DroneState, PsdkDataMessage
+from app.services.telemetry_scenarios import (
+    build_m400_fault_scenario,
+    build_m400_mission_scenario,
+    build_m400_mixed_stream_scenario,
+)
 from app.tcp_server.parser import TcpDataParser
 
 
@@ -48,6 +52,22 @@ def _feed_in_chunks(parser: TcpDataParser, payload: bytes, chunk_sizes: list[int
 
 
 class TestM400MissionScenario:
+    def test_scenario_cycle_duration_is_configurable(self):
+        short_steps = build_m400_mission_scenario(cycle_seconds=30)
+        long_steps = build_m400_mission_scenario(cycle_seconds=60)
+
+        short_duration = self._duration_seconds(short_steps)
+        long_duration = self._duration_seconds(long_steps)
+        short_deltas = self._time_deltas_seconds(short_steps)
+        long_deltas = self._time_deltas_seconds(long_steps)
+
+        assert short_duration == pytest.approx(30.0, abs=0.05)
+        assert long_duration == pytest.approx(60.0, abs=0.05)
+        assert len(short_steps) == 31
+        assert len(long_steps) == 61
+        assert all(delta == pytest.approx(1.0, abs=0.001) for delta in short_deltas)
+        assert all(delta == pytest.approx(1.0, abs=0.001) for delta in long_deltas)
+
     def test_generated_m400_scenario_matches_schema_enums(self):
         schema = _load_schema()
         enum_sets = schema["enum_sets"]
@@ -129,6 +149,58 @@ class TestM400MissionScenario:
         assert low_battery_state.raw_payload["serious_low_battery_warning_threshold"] == 15
         assert go_home_state.raw_payload["flight_mode"] == "GO_HOME"
         assert go_home_state.raw_payload["failsafe_action"] == "GOHOME"
+
+    def test_fault_scenario_covers_gps_rc_and_battery_risks(self):
+        parser = TcpDataParser()
+        steps = build_m400_fault_scenario(cycle_seconds=30)
+        results = parser.feed(_serialize_steps(steps))
+        names_to_states = {step.name: state for step, state in zip(steps, results)}
+
+        assert names_to_states["gps_signal_degraded"].gps_signal == 1
+        assert names_to_states["gps_signal_degraded"].flight_mode == "ATTI"
+        assert names_to_states["rc_link_degraded"].rc_signal == 24
+        assert names_to_states["battery_anomaly_detected"].flight_mode == "BATTERY_DIAGNOSIS_PROTECT"
+        assert (
+            names_to_states["battery_anomaly_detected"].raw_payload["battery_status"]["cell_damaged"] is True
+        )
+        assert (
+            names_to_states["battery_anomaly_detected"].raw_payload["battery_status"][
+                "voltage_difference_detected"
+            ]
+            is True
+        )
+        assert names_to_states["low_battery_warning"].battery.percent == 22
+        assert names_to_states["go_home_active"].flight_mode == "GO_HOME"
+        assert names_to_states["landed_shutdown"].is_flying is False
+
+    def test_parser_handles_mixed_flight_and_psdk_stream(self):
+        parser = TcpDataParser()
+        steps = build_m400_mixed_stream_scenario(cycle_seconds=30)
+        results = parser.feed(_serialize_steps(steps))
+
+        flight_messages = [message for message in results if isinstance(message, DroneState)]
+        psdk_messages = [message for message in results if isinstance(message, PsdkDataMessage)]
+
+        assert len(flight_messages) == len(build_m400_fault_scenario(cycle_seconds=30))
+        assert len(psdk_messages) >= 4
+        assert {message.device_type for message in psdk_messages} == {"weather", "visibility"}
+        assert all(message.payload_index == "PORT_3" for message in psdk_messages)
+        assert flight_messages[-1].is_flying is False
+        assert flight_messages[-1].position.altitude == pytest.approx(0.0)
+
+    @staticmethod
+    def _duration_seconds(steps) -> float:
+        start = datetime.strptime(steps[0].payload["timestamp"], "%Y-%m-%d %H:%M:%S.%f")
+        end = datetime.strptime(steps[-1].payload["timestamp"], "%Y-%m-%d %H:%M:%S.%f")
+        return (end - start).total_seconds()
+
+    @staticmethod
+    def _time_deltas_seconds(steps) -> list[float]:
+        timestamps = [datetime.strptime(step.payload["timestamp"], "%Y-%m-%d %H:%M:%S.%f") for step in steps]
+        return [
+            (timestamps[index + 1] - timestamps[index]).total_seconds()
+            for index in range(len(timestamps) - 1)
+        ]
 
 
 if __name__ == "__main__":

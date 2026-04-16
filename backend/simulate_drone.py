@@ -8,9 +8,14 @@ import json
 import math
 import random
 import time
+from datetime import datetime
 
 from app.config import settings
-from app.services.telemetry_scenarios import build_m400_mission_scenario
+from app.services.telemetry_scenarios import (
+    build_m400_fault_scenario,
+    build_m400_mission_scenario,
+    build_m400_mixed_stream_scenario,
+)
 
 
 async def simulate_random_telemetry(
@@ -95,47 +100,74 @@ async def simulate_random_telemetry(
             pass
 
 
-async def replay_m400_mission(
+async def replay_scripted_scenario(
     host: str,
     port: int,
-    interval: float,
+    scenario: str,
+    duration_seconds: float,
     loop_count: int,
+    loop_forever: bool,
     dry_run: bool,
 ) -> None:
-    """Replay the deterministic M400 mission scenario."""
-    steps = build_m400_mission_scenario()
+    """Replay a deterministic scripted telemetry scenario."""
+    scenario_builders = {
+        "m400_mission": build_m400_mission_scenario,
+        "m400_faults": build_m400_fault_scenario,
+        "m400_mixed": build_m400_mixed_stream_scenario,
+    }
+    steps = scenario_builders[scenario](cycle_seconds=duration_seconds)
+    average_interval = duration_seconds / max(1, len([step for step in steps if step.payload.get("type") != "psdk_data"]) - 1)
 
     if dry_run:
         for index, step in enumerate(steps, start=1):
             payload = step.payload
-            print(
-                f"[dry-run #{index:02d}] "
-                f"{step.name} mode={payload['flight_mode']} "
-                f"alt={payload['relative_altitude']:.1f}m "
-                f"bat={payload['battery_status']['main_battery']['percentage']}%"
+            payload_type = payload.get("type", "flight_data")
+            summary = (
+                f"mode={payload.get('flight_mode', payload_type)} "
+                f"alt={payload.get('relative_altitude', '--')}m "
+                f"bat={payload.get('battery_status', {}).get('main_battery', {}).get('percentage', '--')}%"
             )
+            if payload_type == "psdk_data":
+                summary = f"device={payload.get('payload_index', '--')} data={payload.get('data', '')[:48]}"
+            print(f"[dry-run #{index:02d}] {step.name} type={payload_type} {summary}")
         return
 
     print(f"Connecting to TCP server {host}:{port} ...")
     try:
         _reader, writer = await asyncio.open_connection(host, port)
-        print(f"Connected, replaying M400 mission (interval={interval}s, loops={loop_count})")
+        print(
+            f"Connected, replaying {scenario} "
+            f"(cycle={duration_seconds}s, flight_interval=1.00s, avg_interval={average_interval:.2f}s, "
+            f"loops={'infinite' if loop_forever else loop_count})"
+        )
     except ConnectionRefusedError:
         print(f"Connection failed: {host}:{port} is not accepting connections.")
         return
 
     try:
-        for loop_index in range(loop_count):
+        loop_index = 0
+        while loop_forever or loop_index < loop_count:
+            loop_label = f"{loop_index + 1}/inf" if loop_forever else str(loop_index + 1)
             for step_index, step in enumerate(steps, start=1):
-                writer.write(json.dumps(step.payload, ensure_ascii=False).encode("utf-8") + b"\n")
+                payload = step.payload
+                writer.write(json.dumps(payload, ensure_ascii=False).encode("utf-8") + b"\n")
                 await writer.drain()
-                print(
-                    f"[mission {loop_index + 1}/{loop_count} step {step_index:02d}] "
-                    f"{step.name} mode={step.payload['flight_mode']} "
-                    f"alt={step.payload['relative_altitude']:.1f}m "
-                    f"bat={step.payload['battery_status']['main_battery']['percentage']}%"
+
+                payload_type = payload.get("type", "flight_data")
+                summary = (
+                    f"mode={payload.get('flight_mode', payload_type)} "
+                    f"alt={payload.get('relative_altitude', '--')}m "
+                    f"bat={payload.get('battery_status', {}).get('main_battery', {}).get('percentage', '--')}%"
                 )
-                await asyncio.sleep(interval)
+                if payload_type == "psdk_data":
+                    summary = f"device={payload.get('payload_index', '--')} data={payload.get('data', '')[:48]}"
+
+                print(f"[scenario {loop_label} step {step_index:02d}] {step.name} type={payload_type} {summary}")
+                if step_index < len(steps):
+                    current_time = _parse_payload_timestamp(payload["timestamp"])
+                    next_time = _parse_payload_timestamp(steps[step_index].payload["timestamp"])
+                    await asyncio.sleep(max(0.0, (next_time - current_time).total_seconds()))
+            loop_index += 1
     finally:
         writer.close()
         try:
@@ -148,27 +180,35 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Telemetry simulator for the backend TCP server.")
     parser.add_argument("--host", default="127.0.0.1", help="TCP server host")
     parser.add_argument("--port", type=int, default=settings.tcp_server_port, help="TCP server port")
-    parser.add_argument("--interval", type=float, default=1.0, help="Send interval in seconds")
+    parser.add_argument("--interval", type=float, default=1.0, help="Send interval in seconds (random scenario only)")
+    parser.add_argument("--duration-seconds", type=float, default=30.0, help="Scripted scenario cycle duration")
     parser.add_argument("--drone-id", default="DJI-001", help="Drone ID for random mode")
     parser.add_argument(
         "--scenario",
-        choices=["random", "m400_mission"],
+        choices=["random", "m400_mission", "m400_faults", "m400_mixed"],
         default="random",
         help="Scenario to run",
     )
     parser.add_argument("--loop-count", type=int, default=1, help="Replay count for scripted scenarios")
+    parser.add_argument("--loop-forever", action="store_true", help="Replay scripted scenario continuously")
     parser.add_argument("--dry-run", action="store_true", help="Print scripted scenario without connecting")
     return parser.parse_args()
 
 
+def _parse_payload_timestamp(timestamp: str):
+    return datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S.%f")
+
+
 async def _main(args: argparse.Namespace) -> None:
     interval = max(0.0, args.interval)
-    if args.scenario == "m400_mission":
-        await replay_m400_mission(
+    if args.scenario != "random":
+        await replay_scripted_scenario(
             host=args.host,
             port=args.port,
-            interval=interval,
+            scenario=args.scenario,
+            duration_seconds=max(5.0, args.duration_seconds),
             loop_count=max(1, args.loop_count),
+            loop_forever=bool(args.loop_forever),
             dry_run=bool(args.dry_run),
         )
         return
