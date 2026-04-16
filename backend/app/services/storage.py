@@ -115,6 +115,9 @@ class StorageService:
             "timestamp": message.timestamp,
             "payload_index": message.payload_index,
             "data": message.data,
+            "device_type": message.device_type,
+            "parsed_data": message.parsed_data,
+            "warnings": message.warnings,
             "raw_payload": message.raw_payload or {},
         }
         with self._raw_history_path.open("a", encoding="utf-8") as f:

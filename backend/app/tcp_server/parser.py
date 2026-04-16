@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from app.models.drone import BatteryInfo, DroneState, GpsPosition, PsdkDataMessage, StreamMessage, Velocity
+from app.services.psdk_data_parser import parse_psdk_payload
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -196,15 +197,22 @@ class TcpDataParser:
             return None
 
         try:
+            device_type, parsed_data, warnings = parse_psdk_payload(
+                self._extract_string(payload, ["data"], default="")
+            )
             message = PsdkDataMessage(
                 type="psdk_data",
                 timestamp=self._extract_timestamp(payload),
                 payload_index=self._extract_string(payload, ["payload_index"], default=""),
                 data=self._extract_string(payload, ["data"], default=""),
+                device_type=device_type,
+                parsed_data=parsed_data,
+                warnings=warnings,
                 raw_payload=payload,
             )
             logger.debug(
                 "PSDK data parsed successfully",
+                device_type=message.device_type,
                 payload_index=message.payload_index,
                 data_preview=message.data[:80],
             )

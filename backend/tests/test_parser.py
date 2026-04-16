@@ -5,13 +5,17 @@ import sys
 import time
 from pathlib import Path
 
-import pytest
+try:
+    import pytest
+except ModuleNotFoundError:  # pragma: no cover - direct-script fallback
+    from tests import _pytest_compat as pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.models.drone import PsdkDataMessage
+from app.services.psdk_data_parser import calculate_weather_lrc
 from app.tcp_server.parser import TcpDataParser
 
 
@@ -178,9 +182,74 @@ class TestTcpDataParser:
         results = self.parser.feed(self._make_json_line(data))
         assert len(results) == 1
         assert isinstance(results[0], PsdkDataMessage)
+        assert results[0].device_type == "weather"
         assert results[0].payload_index == "PORT_3"
         assert results[0].data == data["data"]
+        assert results[0].parsed_data["relative_wind_direction_deg"] == pytest.approx(16.0)
+        assert results[0].parsed_data["relative_wind_speed_ms"] == pytest.approx(0.0)
+        assert results[0].parsed_data["temperature_c"] == pytest.approx(24.0)
+        assert results[0].parsed_data["lrc_received"] == "1F"
+        assert results[0].parsed_data["lrc_calculated"] == "1F"
+        assert results[0].parsed_data["lrc_valid"] is True
         assert results[0].raw_payload == data
+
+    def test_parse_weather_psdk_payload_with_invalid_markers(self):
+        frame_body = ":01,///,///,///,///,124.6,///,0,0.00,0.0,20,"
+        data = {
+            "type": "psdk_data",
+            "timestamp": "2026-04-15 17:31:21",
+            "payload_index": "PORT_3",
+            "data": f"{frame_body}{calculate_weather_lrc(frame_body)}\r\n",
+        }
+
+        results = self.parser.feed(self._make_json_line(data))
+        assert len(results) == 1
+        assert isinstance(results[0], PsdkDataMessage)
+        assert results[0].device_type == "weather"
+        assert results[0].parsed_data["relative_wind_direction_deg"] == "///"
+        assert results[0].parsed_data["relative_wind_speed_ms"] == "///"
+        assert results[0].parsed_data["temperature_c"] == "///"
+        assert results[0].parsed_data["humidity_percent"] == "///"
+        assert results[0].parsed_data["pressure_hpa"] == pytest.approx(124.6)
+        assert results[0].parsed_data["compass_heading_deg"] == "///"
+        assert results[0].parsed_data["true_wind_direction_deg"] == "///"
+        assert results[0].parsed_data["true_wind_speed_ms"] == "///"
+        assert results[0].parsed_data["lrc_received"] == "E7"
+        assert results[0].parsed_data["lrc_calculated"] == "E7"
+        assert results[0].parsed_data["lrc_valid"] is True
+        assert results[0].warnings == []
+
+    def test_parse_visibility_psdk_payload(self):
+        data = {
+            "type": "psdk_data",
+            "timestamp": "2026-04-15 17:31:20",
+            "payload_index": "PORT_3",
+            "data": "VTF-01820-01872-01872-///-0001-000.0-11.5-1.25-04\r\n",
+        }
+
+        results = self.parser.feed(self._make_json_line(data))
+        assert len(results) == 1
+        assert isinstance(results[0], PsdkDataMessage)
+        assert results[0].device_type == "visibility"
+        assert results[0].parsed_data["visibility_10s_m"] == 1820
+        assert results[0].parsed_data["visibility_1min_m"] == 1872
+        assert results[0].parsed_data["visibility_10min_m"] == 1872
+        assert results[0].parsed_data["power_voltage_v"] == pytest.approx(11.5)
+
+    def test_parse_visibility_psdk_payload_with_invalid_marker(self):
+        data = {
+            "type": "psdk_data",
+            "timestamp": "2026-04-15 17:31:20",
+            "payload_index": "PORT_3",
+            "data": "VTF-01820-01872-01872-0000-0001-000.0-///-1.25-04\r\n",
+        }
+
+        results = self.parser.feed(self._make_json_line(data))
+        assert len(results) == 1
+        assert isinstance(results[0], PsdkDataMessage)
+        assert results[0].device_type == "visibility"
+        assert results[0].parsed_data["visibility_10s_m"] == 1820
+        assert results[0].parsed_data["power_voltage_v"] == "///"
 
 
 if __name__ == "__main__":

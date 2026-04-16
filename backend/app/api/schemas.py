@@ -53,6 +53,9 @@ class RawHistoryRecordResponse(BaseModel):
     timestamp: Optional[float] = None
     payload_index: Optional[str] = None
     data: Optional[str] = None
+    device_type: Optional[str] = None
+    parsed_data: Optional[dict[str, Any]] = None
+    warnings: list[str] = Field(default_factory=list)
     raw_payload: Optional[dict[str, Any]] = None
 
 

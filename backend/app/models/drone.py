@@ -77,6 +77,9 @@ class PsdkDataMessage(BaseModel):
     timestamp: float = Field(default_factory=time.time, description="Unix 时间戳")
     payload_index: str = Field(default="", description="负载端口")
     data: str = Field(default="", description="设备原始数据")
+    device_type: str = Field(default="unknown", description="设备数据类型")
+    parsed_data: Optional[Dict[str, Any]] = Field(default=None, description="解析后的设备数据")
+    warnings: list[str] = Field(default_factory=list, description="解析告警")
     raw_payload: Optional[Dict[str, Any]] = Field(default=None, description="原始 JSON")
 
 
