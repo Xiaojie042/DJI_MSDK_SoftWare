@@ -64,6 +64,13 @@ const weather = computed(() => {
     visibilityPayload.value.visibility_1min_m,
     visibilityPayload.value.visibility_10min_m
   )
+  const altitudeDisplay = computed(() => {
+  const alt = store.droneState?.position?.altitude
+  if (!Number.isFinite(alt)) {
+    return '/'
+  }
+  return `${alt.toFixed(1)} m`
+})
 
   return {
     windSpeed,
@@ -143,7 +150,10 @@ const visibilityDisplay = computed(() => {
         </div>
 
         <div class="center-hub">
-          <div class="speed-value" :class="{ 'text-danger': Number.isFinite(weather.windSpeed) && weather.windSpeed > 10 }">
+          <div
+            class="speed-value"
+            :class="{ 'text-danger': Number.isFinite(weather.windSpeed) && weather.windSpeed > 10 }"
+          >
             {{ Number.isFinite(weather.windSpeed) ? weather.windSpeed.toFixed(1) : '/' }}
           </div>
           <div class="speed-unit">m/s</div>
@@ -161,7 +171,10 @@ const visibilityDisplay = computed(() => {
     <div class="visibility-section">
       <div class="data-row">
         <span class="label">能见度</span>
-        <span class="value" :class="{ 'text-danger': Number.isFinite(weather.visibility) && weather.visibility < 1000 }">
+        <span
+          class="value"
+          :class="{ 'text-danger': Number.isFinite(weather.visibility) && weather.visibility < 1000 }"
+        >
           {{ visibilityDisplay }}
         </span>
       </div>
@@ -178,12 +191,15 @@ const visibilityDisplay = computed(() => {
 
 <style scoped>
 .weather-sidebar {
+  --sidebar-height: 608px;
+  --compass-size: 248px;
+
   width: 300px;
-  height: 650px;
-  padding: 16px;
+  height: var(--sidebar-height);
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   box-sizing: border-box;
   color: var(--text-main);
   background: var(--bg-panel);
@@ -195,7 +211,7 @@ const visibilityDisplay = computed(() => {
 }
 
 .compass-section {
-  flex: 0 0 300px;
+  flex: 0 0 258px;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -203,8 +219,8 @@ const visibilityDisplay = computed(() => {
 
 .compass-circle {
   position: relative;
-  width: 280px;
-  height: 280px;
+  width: var(--compass-size);
+  height: var(--compass-size);
   border-radius: 50%;
   background:
     radial-gradient(circle at center, rgba(30, 41, 59, 0.92) 0%, rgba(15, 23, 42, 0.68) 66%, rgba(15, 23, 42, 0.94) 100%);
@@ -231,7 +247,7 @@ const visibilityDisplay = computed(() => {
   bottom: 50%;
   left: calc(50% - 2px);
   width: 4px;
-  height: 124px;
+  height: 110px;
   border-radius: 999px 999px 0 0;
   background: linear-gradient(180deg, #60a5fa 0%, var(--primary) 100%);
 }
@@ -251,7 +267,7 @@ const visibilityDisplay = computed(() => {
   top: 50%;
   left: calc(50% - 1.5px);
   width: 3px;
-  height: 100px;
+  height: 86px;
   border-radius: 0 0 999px 999px;
   background: rgba(148, 163, 184, 0.38);
 }
@@ -260,8 +276,8 @@ const visibilityDisplay = computed(() => {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 86px;
-  height: 86px;
+  width: 76px;
+  height: 76px;
   transform: translate(-50%, -50%);
   border-radius: 50%;
   background: rgba(15, 23, 42, 0.94);
@@ -275,7 +291,7 @@ const visibilityDisplay = computed(() => {
 }
 
 .speed-value {
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 800;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -283,7 +299,7 @@ const visibilityDisplay = computed(() => {
 
 .speed-unit {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
 }
 
@@ -292,8 +308,8 @@ const visibilityDisplay = computed(() => {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 20px;
-  padding: 14px 6px;
+  gap: 14px;
+  padding: 10px 4px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
@@ -307,12 +323,12 @@ const visibilityDisplay = computed(() => {
 
 .label {
   color: var(--text-muted);
-  font-size: 15px;
-  letter-spacing: 0.18em;
+  font-size: 14px;
+  letter-spacing: 0.14em;
 }
 
 .value {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -320,8 +336,8 @@ const visibilityDisplay = computed(() => {
 .visibility-section {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding-top: 4px;
+  gap: 10px;
+  padding-top: 2px;
 }
 
 .progress-container {

@@ -64,11 +64,11 @@ useWebSocket()
 
 .weather-floating {
   position: absolute;
-  top: 1rem;
-  right: 1rem;
+  top: 0.7rem;
+  right: 0.7rem;
   z-index: 460;
   width: 300px;
-  height: 650px;
+  height: 608px;
   pointer-events: auto;
 }
 
@@ -127,8 +127,8 @@ useWebSocket()
 
 @media (max-width: 1100px) {
   .weather-floating {
-    top: 0.85rem;
-    right: 0.85rem;
+    top: 0.65rem;
+    right: 0.65rem;
     transform: scale(0.92);
     transform-origin: top right;
   }
