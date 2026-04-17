@@ -6,8 +6,22 @@ const HISTORY_LIMIT = 50
 const RAW_STREAM_LIMIT = 50
 const ALERT_LIMIT = 20
 const TELEMETRY_ARCHIVE_LIMIT = 300
+const DEFAULT_API_PORT = '8000'
 
 let persistTimer = null
+
+const buildApiBase = () => {
+  const configuredBase = import.meta.env.VITE_API_BASE_URL
+  if (configuredBase) {
+    return configuredBase.replace(/\/$/, '')
+  }
+
+  const host = import.meta.env.VITE_API_HOST || window.location.hostname
+  const port = import.meta.env.VITE_API_PORT || DEFAULT_API_PORT
+  return `${window.location.protocol}//${host}:${port}`
+}
+
+const createApiUrl = (path) => `${buildApiBase()}${path}`
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 const toFiniteNumber = (value, fallback = 0) => {
@@ -104,6 +118,50 @@ const createDefaultDroneState = () => ({
   rc_signal: null
 })
 
+const normalizeFlightSessionSummary = (record = {}) => ({
+  flight_id: record.flight_id || '',
+  file_name: record.file_name || record.flight_id || 'unknown-flight.json',
+  drone_id: record.drone_id || null,
+  takeoff_time: parseTimestampToSeconds(record.takeoff_time, Date.now() / 1000),
+  landing_time: record.landing_time === null || record.landing_time === undefined
+    ? null
+    : parseTimestampToSeconds(record.landing_time, Date.now() / 1000),
+  total_distance_m: toFiniteNumber(record.total_distance_m, 0),
+  max_altitude_m: toFiniteNumber(record.max_altitude_m, 0),
+  attached_weather_devices: Array.isArray(record.attached_weather_devices)
+    ? record.attached_weather_devices
+        .map((device) => ({
+          payload_index: device?.payload_index || '--',
+          device_type: device?.device_type || 'unknown'
+        }))
+        .filter((device) => device.payload_index || device.device_type)
+    : []
+})
+
+const createHistoricalTrackPoint = (record = {}) => {
+  const telemetry = record.telemetry || {}
+  const position = telemetry.position || {}
+  const latitude = toFiniteNumber(position.latitude ?? telemetry.latitude ?? telemetry.lat, NaN)
+  const longitude = toFiniteNumber(position.longitude ?? telemetry.longitude ?? telemetry.lng, NaN)
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || (latitude === 0 && longitude === 0)) {
+    return null
+  }
+
+  return {
+    lat: latitude,
+    lng: longitude,
+    altitude: toFiniteNumber(position.altitude ?? telemetry.altitude, 0),
+    heading: toFiniteNumber(telemetry.heading, 0),
+    timestamp: parseTimestampToSeconds(record.timestamp ?? telemetry.timestamp, Date.now() / 1000)
+  }
+}
+
+const buildHistoricalTrack = (detail = {}) =>
+  (Array.isArray(detail.telemetry_records) ? detail.telemetry_records : [])
+    .map((record) => createHistoricalTrackPoint(record))
+    .filter(Boolean)
+
 const createDefaultState = () => ({
   droneState: createDefaultDroneState(),
   alerts: [],
@@ -112,6 +170,14 @@ const createDefaultState = () => ({
   rawStream: [],
   flightTrack: [],
   telemetryArchive: [],
+  flightHistoryPanelOpen: false,
+  flightSessions: [],
+  flightSessionsLoading: false,
+  flightSessionsError: '',
+  flightSessionsDeletingIds: [],
+  selectedFlightSessionIds: [],
+  flightSessionDetails: {},
+  flightSessionTracks: {},
   localCacheMeta: {
     enabled: true,
     lastSavedAt: null
@@ -263,6 +329,20 @@ const buildRawStreamFrame = (payload, fallbackTimestamp = null) => {
     time: formatTelemetryTime(rawData?.timestamp ?? payload?.timestamp ?? fallbackTimestamp),
     data: rawData
   }
+}
+
+const shouldResetTrackForNewFlight = (previousState, nextState) => {
+  if (!previousState || !nextState) {
+    return false
+  }
+
+  const previousAltitude = toFiniteNumber(previousState.position?.altitude, 0)
+
+  return (
+    !toBoolean(previousState.is_flying, false) &&
+    toBoolean(nextState.is_flying, false) &&
+    previousAltitude <= 2
+  )
 }
 
 const normalizeDroneStatePayload = (payload = {}) => {
@@ -541,13 +621,45 @@ export const useDroneStore = defineStore('drone', {
     },
     localArchiveCount(state) {
       return state.telemetryArchive.length
+    },
+    historicalTracks(state) {
+      return state.selectedFlightSessionIds
+        .map((flightId) => {
+          const points = state.flightSessionTracks[flightId]
+          if (!Array.isArray(points) || points.length < 2) {
+            return null
+          }
+
+          const summary =
+            state.flightSessions.find((item) => item.flight_id === flightId) ||
+            state.flightSessionDetails[flightId] ||
+            {}
+
+          return {
+            flight_id: flightId,
+            file_name: summary.file_name || flightId,
+            points,
+            attached_weather_devices: Array.isArray(summary.attached_weather_devices)
+              ? summary.attached_weather_devices
+              : [],
+            has_weather_devices: Array.isArray(summary.attached_weather_devices)
+              ? summary.attached_weather_devices.length > 0
+              : false
+          }
+        })
+        .filter(Boolean)
     }
   },
 
   actions: {
     updateDroneState(newState) {
+      const previousState = this.droneState
       const normalizedState = normalizeDroneStatePayload(newState)
-      const mergedState = mergeDroneState(this.droneState, normalizedState)
+      const mergedState = mergeDroneState(previousState, normalizedState)
+
+      if (shouldResetTrackForNewFlight(previousState, mergedState)) {
+        this.flightTrack = []
+      }
 
       this.droneState = mergedState
 
@@ -579,6 +691,157 @@ export const useDroneStore = defineStore('drone', {
     clearCurrentTrack() {
       this.flightTrack = []
       schedulePersistence(this)
+    },
+    async openFlightHistoryPanel() {
+      this.flightHistoryPanelOpen = true
+      await this.fetchFlightSessions()
+    },
+    closeFlightHistoryPanel() {
+      this.flightHistoryPanelOpen = false
+      this.flightSessionsError = ''
+    },
+    clearSelectedFlightSessions() {
+      this.selectedFlightSessionIds = []
+    },
+    async fetchFlightSessions(force = false) {
+      if (this.flightSessionsLoading) {
+        return this.flightSessions
+      }
+
+      if (!force && this.flightSessions.length > 0) {
+        return this.flightSessions
+      }
+
+      this.flightSessionsLoading = true
+      this.flightSessionsError = ''
+
+      try {
+        const response = await fetch(createApiUrl('/api/flights'))
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+
+        const payload = await response.json()
+        const records = Array.isArray(payload?.records)
+          ? payload.records.map((record) => normalizeFlightSessionSummary(record))
+          : []
+
+        this.flightSessions = records
+
+        const validIds = new Set(records.map((record) => record.flight_id))
+        this.selectedFlightSessionIds = this.selectedFlightSessionIds.filter((flightId) => validIds.has(flightId))
+
+        const nextDetails = {}
+        const nextTracks = {}
+        for (const flightId of this.selectedFlightSessionIds) {
+          if (this.flightSessionDetails[flightId]) {
+            nextDetails[flightId] = this.flightSessionDetails[flightId]
+          }
+          if (this.flightSessionTracks[flightId]) {
+            nextTracks[flightId] = this.flightSessionTracks[flightId]
+          }
+        }
+        this.flightSessionDetails = nextDetails
+        this.flightSessionTracks = nextTracks
+
+        return records
+      } catch (error) {
+        this.flightSessionsError = '历史架次加载失败'
+        console.warn('Failed to load flight sessions:', error)
+        return []
+      } finally {
+        this.flightSessionsLoading = false
+      }
+    },
+    async fetchFlightSessionDetail(flightId) {
+      if (this.flightSessionDetails[flightId]) {
+        return this.flightSessionDetails[flightId]
+      }
+
+      const response = await fetch(createApiUrl(`/api/flights/${encodeURIComponent(flightId)}`))
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const payload = await response.json()
+      const summary = normalizeFlightSessionSummary(payload)
+      const detail = {
+        ...payload,
+        ...summary,
+        telemetry_records: Array.isArray(payload?.telemetry_records) ? payload.telemetry_records : [],
+        psdk_records: Array.isArray(payload?.psdk_records) ? payload.psdk_records : [],
+        summary: payload?.summary || {}
+      }
+
+      this.flightSessionDetails = {
+        ...this.flightSessionDetails,
+        [flightId]: detail
+      }
+      this.flightSessionTracks = {
+        ...this.flightSessionTracks,
+        [flightId]: buildHistoricalTrack(detail)
+      }
+
+      return detail
+    },
+    async toggleFlightSessionSelection(flightId) {
+      if (this.selectedFlightSessionIds.includes(flightId)) {
+        this.selectedFlightSessionIds = this.selectedFlightSessionIds.filter((id) => id !== flightId)
+        return false
+      }
+
+      await this.fetchFlightSessionDetail(flightId)
+      this.selectedFlightSessionIds = [...this.selectedFlightSessionIds, flightId]
+      return true
+    },
+    async deleteFlightSession(flightId, { refresh = true } = {}) {
+      if (this.flightSessionsDeletingIds.includes(flightId)) {
+        return false
+      }
+
+      this.flightSessionsDeletingIds = [...this.flightSessionsDeletingIds, flightId]
+      this.flightSessionsError = ''
+
+      try {
+        const response = await fetch(createApiUrl(`/api/flights/${encodeURIComponent(flightId)}`), {
+          method: 'DELETE'
+        })
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+
+        this.selectedFlightSessionIds = this.selectedFlightSessionIds.filter((id) => id !== flightId)
+        this.flightSessions = this.flightSessions.filter((item) => item.flight_id !== flightId)
+
+        const { [flightId]: _removedDetail, ...remainingDetails } = this.flightSessionDetails
+        const { [flightId]: _removedTrack, ...remainingTracks } = this.flightSessionTracks
+        this.flightSessionDetails = remainingDetails
+        this.flightSessionTracks = remainingTracks
+
+        if (refresh) {
+          await this.fetchFlightSessions(true)
+        }
+
+        return true
+      } catch (error) {
+        this.flightSessionsError = '删除历史架次失败'
+        console.warn(`Failed to delete flight session ${flightId}:`, error)
+        return false
+      } finally {
+        this.flightSessionsDeletingIds = this.flightSessionsDeletingIds.filter((id) => id !== flightId)
+      }
+    },
+    async deleteSelectedFlightSessions() {
+      const targets = [...new Set(this.selectedFlightSessionIds)]
+      for (const flightId of targets) {
+        const deleted = await this.deleteFlightSession(flightId, { refresh: false })
+        if (!deleted) {
+          return false
+        }
+      }
+
+      await this.fetchFlightSessions(true)
+      return true
     },
     addRawFrame(framePayload, fallbackTimestamp = null) {
       const rawFrame = buildRawStreamFrame(framePayload, fallbackTimestamp)

@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useDroneStore } from '@/stores/droneStore'
+import FlightHistoryPanel from '@/components/dashboard/FlightHistoryPanel.vue'
 
 const store = useDroneStore()
 
@@ -106,21 +107,27 @@ const formatDistanceLimit = () => {
           <div class="policy-badge track-chip">{{ store.flightTrack.length }} 点</div>
         </div>
         <strong>当前航迹</strong>
-        <p class="clamp-two">支持随时清除当前地图航迹，并为后续轨迹操作预留入口。</p>
+        <p class="clamp-two">支持清除当前实时轨迹，也可以打开历史架次面板叠加查看历史飞行轨迹。</p>
 
         <div class="track-actions">
           <button type="button" class="track-action-button track-action-button--primary" @click="store.clearCurrentTrack">
             清除轨迹
           </button>
-          <button type="button" class="track-action-button" disabled>
-            预留一
+          <button
+            type="button"
+            class="track-action-button track-action-button--secondary"
+            @click="store.openFlightHistoryPanel()"
+          >
+            历史架次
           </button>
           <button type="button" class="track-action-button" disabled>
-            预留二
+            预留按钮
           </button>
         </div>
 
-        <small class="clamp-one">清除后仅重置轨迹线，不影响实时位置和遥测更新。</small>
+        <small class="clamp-one">
+          历史面板支持多选轨迹叠加、取消选中隐藏，以及删除历史架次。
+        </small>
       </article>
 
       <article class="status-card battery-card" :class="healthTone">
@@ -174,6 +181,8 @@ const formatDistanceLimit = () => {
         </div>
       </article>
     </div>
+
+    <FlightHistoryPanel />
   </section>
 </template>
 
@@ -297,12 +306,16 @@ const formatDistanceLimit = () => {
   cursor: not-allowed;
 }
 
+.track-action-button--primary,
+.track-action-button--secondary {
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
 .track-action-button--primary {
   border-color: rgba(125, 211, 252, 0.28);
   background: rgba(14, 165, 233, 0.12);
   color: #e0f2fe;
-  cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
 }
 
 .track-action-button--primary:hover {
@@ -310,7 +323,19 @@ const formatDistanceLimit = () => {
   border-color: rgba(125, 211, 252, 0.42);
 }
 
-.track-action-button--primary:active {
+.track-action-button--secondary {
+  border-color: rgba(148, 163, 184, 0.18);
+  background: rgba(51, 65, 85, 0.7);
+  color: #e2e8f0;
+}
+
+.track-action-button--secondary:hover {
+  background: rgba(71, 85, 105, 0.84);
+  border-color: rgba(148, 163, 184, 0.28);
+}
+
+.track-action-button--primary:active,
+.track-action-button--secondary:active {
   transform: translateY(1px);
 }
 

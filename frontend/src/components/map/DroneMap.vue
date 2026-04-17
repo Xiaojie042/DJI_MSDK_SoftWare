@@ -19,6 +19,16 @@ const popupOptions = {
   maxWidth: 400
 }
 
+const historyTrackPopupOptions = {
+  autoClose: true,
+  closeButton: true,
+  closeOnClick: false,
+  className: 'history-track-popup',
+  minWidth: 200,
+  maxWidth: 220,
+  offset: [0, -6],
+}
+
 const hasLivePosition = computed(() =>
   Number.isFinite(store.droneState.position.latitude) &&
   Number.isFinite(store.droneState.position.longitude) &&
@@ -37,6 +47,34 @@ const highlightedTrail = computed(() => trackPoints.value.slice(-24).map((point)
 const takeoffPoint = computed(() => {
   const firstPoint = trackPoints.value[0]
   return firstPoint ? [firstPoint.lat, firstPoint.lng] : null
+})
+
+const getHistoricalTrackColor = (flightId) => {
+  const source = String(flightId || 'history-track')
+  let hash = 0
+
+  for (const char of source) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0
+  }
+
+  const hue = hash % 360
+  const saturation = 62 + (hash % 14)
+  const lightness = 58 + ((hash >>> 4) % 8)
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`
+}
+
+const historicalTracks = computed(() => {
+  return store.historicalTracks.map((track) => ({
+    ...track,
+    latLngs: track.points.map((point) => [point.lat, point.lng]),
+    options: {
+      color: getHistoricalTrackColor(track.flight_id),
+      weight: 4,
+      opacity: 0.72,
+      dashArray: '12 10',
+      lineCap: 'round'
+    }
+  }))
 })
 const dronePosition = computed(() =>
   hasLivePosition.value ? [store.droneState.position.latitude, store.droneState.position.longitude] : null
@@ -272,6 +310,21 @@ const droneIcon = computed(() => {
       />
 
       <l-polyline
+        v-for="historyTrack in historicalTracks"
+        :key="historyTrack.flight_id"
+        v-show="historyTrack.latLngs.length > 1"
+        :lat-lngs="historyTrack.latLngs"
+        :options="historyTrack.options"
+      >
+        <l-popup :options="historyTrackPopupOptions">
+          <article class="history-track-popup-card">
+            <strong>{{ historyTrack.file_name }}</strong>
+            <span>{{ historyTrack.has_weather_devices ? '含气象设备' : '无气象设备' }}</span>
+          </article>
+        </l-popup>
+      </l-polyline>
+
+      <l-polyline
         v-if="pathCoords.length > 1"
         :lat-lngs="pathCoords"
         color="#22d3ee"
@@ -412,6 +465,65 @@ const droneIcon = computed(() => {
   align-items: center;
   justify-content: center;
   z-index: 100;
+}
+
+.leaflet-popup.history-track-popup .leaflet-popup-content-wrapper {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.leaflet-popup.history-track-popup .leaflet-popup-content {
+  margin: 0;
+}
+
+.leaflet-popup.history-track-popup .leaflet-popup-tip {
+  background: rgba(15, 23, 42, 0.94);
+  box-shadow: none;
+}
+
+.leaflet-popup.history-track-popup .leaflet-popup-close-button {
+  top: 8px;
+  right: 10px;
+  color: #94a3b8;
+  font-size: 18px;
+  width: 22px;
+  height: 22px;
+}
+
+.leaflet-popup.history-track-popup .leaflet-popup-close-button:hover {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: 999px;
+}
+
+.history-track-popup-card {
+  width: 200px;
+  min-height: 50px;
+  padding: 0.6rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.18rem;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: 0 18px 34px rgba(2, 6, 23, 0.28);
+}
+
+.history-track-popup-card strong {
+  padding-right: 1rem;
+  color: #f8fafc;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  word-break: break-all;
+}
+
+.history-track-popup-card span {
+  color: #94a3b8;
+  font-size: 0.7rem;
+  line-height: 1.2;
 }
 
 .leaflet-popup.drone-telemetry-popup .leaflet-popup-close-button:hover {
