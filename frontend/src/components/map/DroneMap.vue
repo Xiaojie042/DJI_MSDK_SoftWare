@@ -14,7 +14,9 @@ const popupOptions = {
   closeOnClick: false,
   keepInView: true,
   className: 'drone-telemetry-popup',
-  offset: [0, -20]
+  offset: [0, -20],
+  minWidth: 340,
+  maxWidth: 400
 }
 
 const hasLivePosition = computed(() =>
@@ -143,6 +145,10 @@ const popupTelemetry = computed(() => {
     ),
     position.longitude
   )
+  const horizontalSpeed = toNumber(
+    readFirstValue(source, ['horizontal_speed', 'speed.horizontal'], 0),
+    0
+  )
   const trueAltitude = toNumber(
     readFirstValue(
       source,
@@ -165,7 +171,7 @@ const popupTelemetry = computed(() => {
     position.altitude
   )
   const modelName = normalizeModelName(readFirstValue(source, ['aircraft_name', 'product_type'], 'M400'))
-
+  const verticalSpeed = toNumber(readFirstValue(source, ['speed.vertical', 'vertical_speed'], 0), 0)
   return {
     pitch,
     roll,
@@ -175,6 +181,8 @@ const popupTelemetry = computed(() => {
     longitude,
     trueAltitude,
     seaLevelAltitude,
+    horizontalSpeed,
+    verticalSpeed,
     modelName
   }
 })
@@ -182,6 +190,8 @@ const popupTelemetry = computed(() => {
 const formatAngle = (value) => `${toNumber(value, 0).toFixed(1)}${DEGREE_SYMBOL}`
 const formatAltitude = (value) => `${toNumber(value, 0).toFixed(1)} m`
 const formatCoordinate = (value) => toNumber(value, 0).toFixed(5)
+const formatSpeed = (value) => `${toNumber(value, 0).toFixed(1)} m/s`
+const formatVerticalSpeed = (value) => `${toNumber(value, 0).toFixed(1)} m/s`
 
 const popupStatsPaired = computed(() => [
   [
@@ -189,7 +199,7 @@ const popupStatsPaired = computed(() => [
     { label: '横滚角', value: formatAngle(popupTelemetry.value.roll) }
   ],
   [
-    { label: '偏航角', value: formatAngle(popupTelemetry.value.yaw) },
+    { label: '飞行速度', value: formatSpeed(popupTelemetry.value.horizontalSpeed) },
     { label: '航向角', value: formatAngle(popupTelemetry.value.heading) }
   ],
   [
@@ -198,7 +208,7 @@ const popupStatsPaired = computed(() => [
       value: formatAltitude(popupTelemetry.value.trueAltitude),
       danger: popupTelemetry.value.trueAltitude > 120
     },
-    { label: '海拔高度', value: formatAltitude(popupTelemetry.value.seaLevelAltitude) }
+    { label: '垂直速度', value: formatVerticalSpeed(popupTelemetry.value.verticalSpeed) }
   ]
 ])
 
@@ -407,7 +417,8 @@ const droneIcon = computed(() => {
 }
 
 .drone-popup-shell {
-  min-width: 400px;
+  min-width: 340px;
+  min-height: auto;
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -418,6 +429,14 @@ const droneIcon = computed(() => {
   box-shadow: 0 18px 44px rgba(2, 6, 23, 0.36);
   color: var(--text-main);
   overflow: hidden;
+}
+
+:deep(.leaflet-popup.drone-telemetry-popup .leaflet-popup-close-button) {
+  top: 16px !important;    
+  right: 12px !important;  
+  color: var(--text-muted) !important;
+  font-size: 20px !important;
+  background: transparent !important;
 }
 
 .drone-popup-header {
@@ -592,7 +611,8 @@ const droneIcon = computed(() => {
   background: rgba(15, 23, 42, 0.34);
   border: 1px solid rgba(148, 163, 184, 0.12);
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  justify-content: space-between;
   gap: 0.3rem;
 }
 
