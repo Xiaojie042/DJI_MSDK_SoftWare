@@ -31,9 +31,13 @@ const mapCenter = computed(() =>
     : [31.2304, 121.4737]
 )
 
-const pathCoords = computed(() => store.flightTrack.map((point) => [point.lat, point.lng]))
-const highlightedTrail = computed(() => pathCoords.value.slice(-24))
-const takeoffPoint = computed(() => pathCoords.value[0] || null)
+const trackPoints = computed(() => store.flightTrack)
+const pathCoords = computed(() => trackPoints.value.map((point) => [point.lat, point.lng]))
+const highlightedTrail = computed(() => trackPoints.value.slice(-24).map((point) => [point.lat, point.lng]))
+const takeoffPoint = computed(() => {
+  const firstPoint = trackPoints.value[0]
+  return firstPoint ? [firstPoint.lat, firstPoint.lng] : null
+})
 const dronePosition = computed(() =>
   hasLivePosition.value ? [store.droneState.position.latitude, store.droneState.position.longitude] : null
 )

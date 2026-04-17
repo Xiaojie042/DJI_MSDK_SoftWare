@@ -52,12 +52,6 @@ const debugItems = computed(() => [
   }
 ])
 
-const trackDistanceText = computed(() =>
-  store.trackDistanceMeters >= 1000
-    ? `${(store.trackDistanceMeters / 1000).toFixed(2)} km`
-    : `${store.trackDistanceMeters.toFixed(0)} m`
-)
-
 const batteryScoreText = computed(() =>
   store.batteryHealth.score === null ? '--' : `${store.batteryHealth.score}`
 )
@@ -149,6 +143,9 @@ const formatDistanceLimit = () => {
         <strong>{{ store.safetyPolicy.title }}</strong>
         <p class="clamp-two">{{ store.safetyPolicy.description }}</p>
         <small class="clamp-one">{{ store.safetyPolicy.action }}</small>
+        <button type="button" class="track-clear-button" @click="store.clearCurrentTrack">
+          清除当前轨迹
+        </button>
       </article>
 
       <article class="status-card battery-card" :class="healthTone">
@@ -167,10 +164,6 @@ const formatDistanceLimit = () => {
           <div>
             <span>温度</span>
             <strong>{{ (store.droneState.battery.temperature || 0).toFixed(1) }} °C</strong>
-          </div>
-          <div>
-            <span>航迹</span>
-            <strong>{{ trackDistanceText }}</strong>
           </div>
         </div>
 
@@ -310,7 +303,7 @@ const formatDistanceLimit = () => {
 
 .health-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.4rem;
   margin-top: auto;
 }
@@ -341,6 +334,29 @@ const formatDistanceLimit = () => {
 
 .status-footnote {
   margin-top: 0.42rem;
+}
+
+.track-clear-button {
+  margin-top: auto;
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  border-radius: 10px;
+  background: rgba(14, 165, 233, 0.12);
+  color: #e0f2fe;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.track-clear-button:hover {
+  background: rgba(14, 165, 233, 0.2);
+  border-color: rgba(125, 211, 252, 0.42);
+}
+
+.track-clear-button:active {
+  transform: translateY(1px);
 }
 
 .limits-card {

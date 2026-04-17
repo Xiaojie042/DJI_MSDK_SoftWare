@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 
 const LOCAL_CACHE_KEY = 'drone-monitor:telemetry-cache:v1'
-const TRACK_LIMIT = 1500
+const TRACK_LIMIT = 5000
 const HISTORY_LIMIT = 50
 const RAW_STREAM_LIMIT = 50
 const ALERT_LIMIT = 20
@@ -574,6 +574,10 @@ export const useDroneStore = defineStore('drone', {
         }
       }
 
+      schedulePersistence(this)
+    },
+    clearCurrentTrack() {
+      this.flightTrack = []
       schedulePersistence(this)
     },
     addRawFrame(framePayload, fallbackTimestamp = null) {
