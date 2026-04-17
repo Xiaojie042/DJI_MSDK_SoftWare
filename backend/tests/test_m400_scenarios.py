@@ -21,6 +21,7 @@ from app.services.telemetry_scenarios import (
     build_m400_fault_scenario,
     build_m400_mission_scenario,
     build_m400_mixed_stream_scenario,
+    build_m400_weather_device_scenario,
 )
 from app.tcp_server.parser import TcpDataParser
 
@@ -187,6 +188,34 @@ class TestM400MissionScenario:
         assert all(message.payload_index == "PORT_3" for message in psdk_messages)
         assert flight_messages[-1].is_flying is False
         assert flight_messages[-1].position.altitude == pytest.approx(0.0)
+
+    def test_weather_device_scenario_runs_for_configured_duration(self):
+        steps = build_m400_weather_device_scenario(cycle_seconds=30)
+
+        assert self._duration_seconds(steps) == pytest.approx(30.0, abs=0.05)
+        assert len(steps) == 61
+        assert steps[0].payload["type"] == "psdk_data"
+        assert steps[0].payload["payload_index"] == "PORT_3"
+        assert steps[-1].name == "weather_device_30"
+
+    def test_parser_handles_weather_device_only_stream(self):
+        parser = TcpDataParser()
+        steps = build_m400_weather_device_scenario(cycle_seconds=30)
+        results = parser.feed(_serialize_steps(steps))
+
+        assert len(results) == len(steps)
+        assert all(isinstance(message, PsdkDataMessage) for message in results)
+
+        weather_messages = [message for message in results if message.device_type == "weather"]
+        visibility_messages = [message for message in results if message.device_type == "visibility"]
+
+        assert len(weather_messages) == 31
+        assert len(visibility_messages) == 30
+        assert all(message.payload_index == "PORT_3" for message in results)
+        assert weather_messages[0].parsed_data["relative_wind_direction_deg"] == pytest.approx(56.0)
+        assert weather_messages[-1].parsed_data["lrc_valid"] is True
+        assert visibility_messages[0].parsed_data["visibility_10s_m"] == 1820
+        assert visibility_messages[-1].parsed_data["power_voltage_v"] == pytest.approx(11.10, abs=0.01)
 
     @staticmethod
     def _duration_seconds(steps) -> float:

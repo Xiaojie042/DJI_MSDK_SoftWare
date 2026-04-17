@@ -95,6 +95,47 @@ def build_m400_mixed_stream_scenario(
     return mixed_steps
 
 
+def build_m400_weather_device_scenario(
+    start_time: Optional[datetime] = None,
+    cycle_seconds: float = 30.0,
+) -> list[ScenarioStep]:
+    """Build a weather-device-only stream for PSDK weather and visibility testing."""
+    start = start_time or datetime(2026, 4, 16, 10, 30, 0)
+    safe_cycle_seconds = max(5, int(round(float(cycle_seconds))))
+    steps: list[ScenarioStep] = []
+
+    for second in range(safe_cycle_seconds + 1):
+        base_time = start + timedelta(seconds=second)
+        steps.append(
+            _build_weather_step(
+                name=f"weather_device_{second:02d}",
+                timestamp=base_time,
+                relative_wind_direction=str((56 + second * 5) % 360),
+                relative_wind_speed=f"{0.30 + (second % 6) * 0.18:.2f}",
+                temperature=f"{24.0 + second * 0.1:.1f}",
+                humidity=f"{63.7 - second * 0.2:.1f}",
+                pressure=f"{1003.9 - second * 0.25:.1f}",
+                compass_heading=str((44 + second * 4) % 360),
+                true_wind_direction=f"{12.5 + second * 4.3:.1f}",
+                true_wind_speed=f"{1.80 + second * 0.07:.2f}",
+            )
+        )
+
+        if second < safe_cycle_seconds:
+            steps.append(
+                _build_visibility_step(
+                    name=f"visibility_device_{second:02d}",
+                    timestamp=base_time + timedelta(milliseconds=500),
+                    visibility_10s=f"{max(600, 1820 - second * 18):05d}",
+                    visibility_1min=f"{max(650, 1872 - second * 16):05d}",
+                    visibility_10min=f"{max(700, 1900 - second * 12):05d}",
+                    voltage=f"{11.50 - min(second, 20) * 0.02:.2f}",
+                )
+            )
+
+    return steps
+
+
 def _build_flight_scenario(
     phase_specs: list[dict[str, Any]],
     start_time: Optional[datetime],

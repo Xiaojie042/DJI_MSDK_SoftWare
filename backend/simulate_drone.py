@@ -15,6 +15,7 @@ from app.services.telemetry_scenarios import (
     build_m400_fault_scenario,
     build_m400_mission_scenario,
     build_m400_mixed_stream_scenario,
+    build_m400_weather_device_scenario,
 )
 
 
@@ -114,9 +115,11 @@ async def replay_scripted_scenario(
         "m400_mission": build_m400_mission_scenario,
         "m400_faults": build_m400_fault_scenario,
         "m400_mixed": build_m400_mixed_stream_scenario,
+        "m400_weather": build_m400_weather_device_scenario,
     }
     steps = scenario_builders[scenario](cycle_seconds=duration_seconds)
-    average_interval = duration_seconds / max(1, len([step for step in steps if step.payload.get("type") != "psdk_data"]) - 1)
+    reference_steps = [step for step in steps if step.payload.get("type") != "psdk_data"] or steps
+    average_interval = duration_seconds / max(1, len(reference_steps) - 1)
 
     if dry_run:
         for index, step in enumerate(steps, start=1):
@@ -137,7 +140,7 @@ async def replay_scripted_scenario(
         _reader, writer = await asyncio.open_connection(host, port)
         print(
             f"Connected, replaying {scenario} "
-            f"(cycle={duration_seconds}s, flight_interval=1.00s, avg_interval={average_interval:.2f}s, "
+            f"(cycle={duration_seconds}s, avg_interval={average_interval:.2f}s, "
             f"loops={'infinite' if loop_forever else loop_count})"
         )
     except ConnectionRefusedError:
@@ -185,7 +188,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--drone-id", default="DJI-001", help="Drone ID for random mode")
     parser.add_argument(
         "--scenario",
-        choices=["random", "m400_mission", "m400_faults", "m400_mixed"],
+        choices=["random", "m400_mission", "m400_faults", "m400_mixed", "m400_weather"],
         default="random",
         help="Scenario to run",
     )
