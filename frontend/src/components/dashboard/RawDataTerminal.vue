@@ -89,8 +89,11 @@ watch(
 .raw-data-terminal {
   display: flex;
   flex-direction: column;
-  gap: 0.95rem;
-  padding: 1.05rem;
+  gap: 0.68rem;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0.8rem;
   border-radius: 22px;
   background: rgba(15, 23, 42, 0.88);
   border: 1px solid rgba(56, 189, 248, 0.2);
@@ -100,13 +103,13 @@ watch(
 .terminal-header {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.75rem;
   align-items: flex-start;
 }
 
 .eyebrow {
   margin: 0 0 0.28rem;
-  font-size: 0.75rem;
+  font-size: 0.68rem;
   letter-spacing: 0.18em;
   color: rgba(148, 163, 184, 0.8);
   text-transform: uppercase;
@@ -120,7 +123,7 @@ watch(
 }
 
 .console-title strong {
-  font-size: 1.05rem;
+  font-size: 0.94rem;
 }
 
 .pulse-dot {
@@ -134,22 +137,22 @@ watch(
 
 .toggle-btn {
   min-width: 108px;
-  padding: 0.6rem 0.9rem;
+  padding: 0.45rem 0.72rem;
   border-radius: 12px;
   border: 1px solid rgba(56, 189, 248, 0.18);
   background: rgba(56, 189, 248, 0.12);
   color: #bae6fd;
-  font-size: 0.88rem;
+  font-size: 0.8rem;
 }
 
 .terminal-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem;
+  gap: 0.55rem;
 }
 
 .summary-chip {
-  padding: 0.82rem 0.9rem;
+  padding: 0.56rem 0.68rem;
   border-radius: 14px;
   background: rgba(30, 41, 59, 0.58);
   border: 1px solid rgba(148, 163, 184, 0.14);
@@ -157,18 +160,19 @@ watch(
 
 .summary-chip span {
   display: block;
-  margin-bottom: 0.28rem;
-  font-size: 0.75rem;
+  margin-bottom: 0.18rem;
+  font-size: 0.68rem;
   color: #94a3b8;
 }
 
 .summary-chip strong {
   color: #f8fafc;
-  font-size: 0.98rem;
+  font-size: 0.84rem;
 }
 
 .terminal-shell {
   min-height: 0;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   border-radius: 18px;
@@ -181,23 +185,24 @@ watch(
 .terminal-toolbar {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 0.7rem 0.95rem;
+  gap: 0.75rem;
+  padding: 0.5rem 0.7rem;
   background: rgba(15, 23, 42, 0.82);
   color: #10b981;
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   border-bottom: 1px solid rgba(59, 130, 246, 0.14);
 }
 
 .terminal-body {
-  max-height: 240px;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
-  padding: 0.8rem 0.95rem;
+  padding: 0.6rem 0.72rem;
 }
 
 .code-line {
-  margin-bottom: 0.8rem;
-  padding: 0.8rem;
+  margin-bottom: 0.55rem;
+  padding: 0.55rem;
   border-radius: 14px;
   background: rgba(15, 23, 42, 0.5);
   border: 1px solid rgba(148, 163, 184, 0.12);
@@ -206,9 +211,9 @@ watch(
 .line-header {
   display: flex;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.55rem;
   align-items: center;
-  margin-bottom: 0.55rem;
+  margin-bottom: 0.35rem;
 }
 
 .time {
@@ -224,8 +229,8 @@ watch(
 .json {
   margin: 0;
   color: #94a3b8;
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: 11px;
+  line-height: 1.38;
   white-space: pre-wrap;
   word-break: break-word;
 }

@@ -49,7 +49,7 @@ useWebSocket()
 }
 
 .workspace {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 330px;
@@ -58,6 +58,7 @@ useWebSocket()
 
 .map-stage {
   position: relative;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
   border-radius: 26px;
@@ -97,22 +98,40 @@ useWebSocket()
 
 .right-sidebar {
   min-height: 0;
+  height: 100%;
+  display: flex;
 }
 
 .bottom-deck {
+  flex: 0 0 150px;
+  height: 150px;
+  max-height: 150px;
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(340px, 0.95fr);
   gap: 1rem;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+
+.bottom-deck::-webkit-scrollbar {
+  display: none;
+}
+
+.bottom-deck > * {
+  min-height: 0;
+  height: 150px;
+}
+
+:deep(.weather-panel) {
+  flex: 1 1 auto;
   min-height: 0;
 }
 
 @media (max-width: 1380px) {
   .workspace {
     grid-template-columns: minmax(0, 1fr) 300px;
-  }
-
-  .bottom-deck {
-    grid-template-columns: 1fr;
   }
 }
 
@@ -122,7 +141,7 @@ useWebSocket()
   }
 
   .right-sidebar {
-    min-height: 340px;
+    min-height: 0;
   }
 }
 

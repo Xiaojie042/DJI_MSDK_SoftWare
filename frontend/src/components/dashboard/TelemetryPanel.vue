@@ -121,22 +121,29 @@ const batteryScoreText = computed(() =>
 .telemetry-panel {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  padding: 1.1rem;
+  gap: 0.72rem;
+  height: 100%;
+  overflow: auto;
+  padding: 0.8rem;
   border-radius: 22px;
   min-height: 0;
+  scrollbar-width: none;
+}
+
+.telemetry-panel::-webkit-scrollbar {
+  display: none;
 }
 
 .panel-header {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.75rem;
   align-items: flex-start;
 }
 
 .eyebrow {
   margin: 0 0 0.25rem;
-  font-size: 0.75rem;
+  font-size: 0.68rem;
   letter-spacing: 0.18em;
   color: rgba(148, 163, 184, 0.8);
   text-transform: uppercase;
@@ -145,7 +152,7 @@ const batteryScoreText = computed(() =>
 h3 {
   margin: 0;
   color: #f8fafc;
-  font-size: 1.18rem;
+  font-size: 1rem;
 }
 
 .policy-badge {
@@ -159,30 +166,31 @@ h3 {
 .panel-grid {
   display: grid;
   grid-template-columns: 1.05fr 1.15fr 1.35fr;
-  gap: 0.95rem;
+  gap: 0.7rem;
   min-height: 0;
+  align-content: start;
 }
 
 .status-card {
   min-height: 0;
   border-radius: 18px;
-  padding: 1rem;
+  padding: 0.78rem;
   background: rgba(15, 23, 42, 0.68);
   border: 1px solid rgba(148, 163, 184, 0.14);
 }
 
 .card-label {
   display: block;
-  margin-bottom: 0.45rem;
+  margin-bottom: 0.28rem;
   color: #94a3b8;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
 }
 
 .status-card strong {
   display: block;
-  margin-bottom: 0.45rem;
+  margin-bottom: 0.25rem;
   color: #f8fafc;
-  font-size: 1.08rem;
+  font-size: 0.96rem;
 }
 
 .status-card p,
@@ -190,11 +198,12 @@ h3 {
   display: block;
   margin: 0;
   color: #94a3b8;
-  line-height: 1.55;
+  line-height: 1.4;
+  font-size: 0.8rem;
 }
 
 .status-card small {
-  margin-top: 0.8rem;
+  margin-top: 0.45rem;
 }
 
 .battery-topline {
@@ -217,13 +226,13 @@ h3 {
 .health-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem;
-  margin-top: 0.9rem;
+  gap: 0.52rem;
+  margin-top: 0.55rem;
 }
 
 .health-metrics div,
 .debug-item {
-  padding: 0.72rem 0.8rem;
+  padding: 0.52rem 0.6rem;
   border-radius: 14px;
   background: rgba(30, 41, 59, 0.6);
   border: 1px solid rgba(148, 163, 184, 0.1);
@@ -232,21 +241,21 @@ h3 {
 .health-metrics span,
 .debug-item span {
   display: block;
-  margin-bottom: 0.3rem;
+  margin-bottom: 0.18rem;
   color: #94a3b8;
-  font-size: 0.75rem;
+  font-size: 0.68rem;
 }
 
 .health-metrics strong,
 .debug-item strong {
   margin-bottom: 0;
-  font-size: 0.95rem;
+  font-size: 0.82rem;
 }
 
 .debug-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem;
+  gap: 0.52rem;
 }
 
 .tone-good {
