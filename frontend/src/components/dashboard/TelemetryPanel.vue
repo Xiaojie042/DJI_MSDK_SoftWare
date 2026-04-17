@@ -17,41 +17,6 @@ const localSavedTime = computed(() => {
   })
 })
 
-const debugItems = computed(() => [
-  {
-    label: 'GPS 信号',
-    value: `${store.droneState.gps_signal || 0} / 5`
-  },
-  {
-    label: '遥控信号',
-    value: store.droneState.rc_signal !== null ? `${store.droneState.rc_signal}%` : '--'
-  },
-  {
-    label: '云台俯仰',
-    value: `${(store.droneState.gimbal_pitch || 0).toFixed(1)}°`
-  },
-  {
-    label: '返航距离',
-    value: `${(store.droneState.home_distance || 0).toFixed(1)} m`
-  },
-  {
-    label: '垂直速度',
-    value: `${(store.droneState.velocity.vertical || 0).toFixed(1)} m/s`
-  },
-  {
-    label: '原始帧缓存',
-    value: `${store.rawStream.length} 条`
-  },
-  {
-    label: '本地归档',
-    value: `${store.localArchiveCount} 条`
-  },
-  {
-    label: '最近保存',
-    value: localSavedTime.value
-  }
-])
-
 const batteryScoreText = computed(() =>
   store.batteryHealth.score === null ? '--' : `${store.batteryHealth.score}`
 )
@@ -135,17 +100,27 @@ const formatDistanceLimit = () => {
 <template>
   <section class="telemetry-panel glass-panel">
     <div class="panel-grid">
-      <article class="status-card safety-card" :class="safetyTone">
+      <article class="status-card track-card">
         <div class="card-topline">
-          <span class="card-label">安全策略</span>
-          <div class="policy-badge" :class="safetyTone">{{ store.safetyPolicy.badge }}</div>
+          <span class="card-label">航迹管理</span>
+          <div class="policy-badge track-chip">{{ store.flightTrack.length }} 点</div>
         </div>
-        <strong>{{ store.safetyPolicy.title }}</strong>
-        <p class="clamp-two">{{ store.safetyPolicy.description }}</p>
-        <small class="clamp-one">{{ store.safetyPolicy.action }}</small>
-        <button type="button" class="track-clear-button" @click="store.clearCurrentTrack">
-          清除当前轨迹
-        </button>
+        <strong>当前航迹</strong>
+        <p class="clamp-two">支持随时清除当前地图航迹，并为后续轨迹操作预留入口。</p>
+
+        <div class="track-actions">
+          <button type="button" class="track-action-button track-action-button--primary" @click="store.clearCurrentTrack">
+            清除轨迹
+          </button>
+          <button type="button" class="track-action-button" disabled>
+            预留一
+          </button>
+          <button type="button" class="track-action-button" disabled>
+            预留二
+          </button>
+        </div>
+
+        <small class="clamp-one">清除后仅重置轨迹线，不影响实时位置和遥测更新。</small>
       </article>
 
       <article class="status-card battery-card" :class="healthTone">
@@ -165,6 +140,10 @@ const formatDistanceLimit = () => {
             <span>温度</span>
             <strong>{{ (store.droneState.battery.temperature || 0).toFixed(1) }} °C</strong>
           </div>
+          <div class="health-metric--policy">
+            <span>安全策略</span>
+            <strong :class="['policy-inline', safetyTone]">{{ store.safetyPolicy.title }}</strong>
+          </div>
         </div>
 
         <small class="status-footnote">最近保存 {{ localSavedTime }}</small>
@@ -173,7 +152,6 @@ const formatDistanceLimit = () => {
       <article class="status-card limits-card">
         <div class="card-topline">
           <span class="card-label">安全与限制</span>
-          <strong class="limits-title">2x2</strong>
         </div>
 
         <div class="limits-grid">
@@ -290,6 +268,52 @@ const formatDistanceLimit = () => {
   border: 1px solid transparent;
 }
 
+.track-card {
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.1), rgba(15, 23, 42, 0.08));
+}
+
+.track-chip {
+  background: rgba(56, 189, 248, 0.12);
+  color: #7dd3fc;
+  border-color: rgba(125, 211, 252, 0.18);
+}
+
+.track-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+  margin-top: auto;
+}
+
+.track-action-button {
+  min-height: 32px;
+  padding: 0 0.45rem;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 10px;
+  background: rgba(30, 41, 59, 0.46);
+  color: #94a3b8;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: not-allowed;
+}
+
+.track-action-button--primary {
+  border-color: rgba(125, 211, 252, 0.28);
+  background: rgba(14, 165, 233, 0.12);
+  color: #e0f2fe;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.track-action-button--primary:hover {
+  background: rgba(14, 165, 233, 0.2);
+  border-color: rgba(125, 211, 252, 0.42);
+}
+
+.track-action-button--primary:active {
+  transform: translateY(1px);
+}
+
 .health-chip {
   min-width: 42px;
   text-align: center;
@@ -303,7 +327,7 @@ const formatDistanceLimit = () => {
 
 .health-metrics {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.4rem;
   margin-top: auto;
 }
@@ -332,41 +356,35 @@ const formatDistanceLimit = () => {
   line-height: 1.2;
 }
 
+.policy-inline {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.policy-inline.tone-good {
+  color: #86efac;
+}
+
+.policy-inline.tone-warning {
+  color: #fcd34d;
+}
+
+.policy-inline.tone-danger {
+  color: #fca5a5;
+}
+
+.policy-inline.tone-offline,
+.policy-inline.tone-neutral {
+  color: #7dd3fc;
+}
+
 .status-footnote {
   margin-top: 0.42rem;
 }
 
-.track-clear-button {
-  margin-top: auto;
-  width: 100%;
-  min-height: 34px;
-  border: 1px solid rgba(125, 211, 252, 0.28);
-  border-radius: 10px;
-  background: rgba(14, 165, 233, 0.12);
-  color: #e0f2fe;
-  font-size: 0.72rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
-}
-
-.track-clear-button:hover {
-  background: rgba(14, 165, 233, 0.2);
-  border-color: rgba(125, 211, 252, 0.42);
-}
-
-.track-clear-button:active {
-  transform: translateY(1px);
-}
-
 .limits-card {
   justify-content: space-between;
-}
-
-.limits-title {
-  color: #7dd3fc;
-  font-size: 0.72rem;
-  font-weight: 700;
 }
 
 .limits-grid {
@@ -376,66 +394,31 @@ const formatDistanceLimit = () => {
   margin-top: auto;
 }
 
-.tone-good {
-  border-color: rgba(34, 197, 94, 0.24);
-}
-
-.tone-good.policy-badge,
 .tone-good .health-chip {
   background: rgba(34, 197, 94, 0.12);
   color: #86efac;
 }
 
-.tone-good.safety-card,
 .tone-good.battery-card {
   background: linear-gradient(180deg, rgba(34, 197, 94, 0.12), rgba(15, 23, 42, 0.08));
 }
 
-.tone-warning {
-  border-color: rgba(245, 158, 11, 0.24);
-}
-
-.tone-warning.policy-badge,
 .tone-warning .health-chip {
   background: rgba(245, 158, 11, 0.12);
   color: #fcd34d;
 }
 
-.tone-warning.safety-card,
 .tone-warning.battery-card {
   background: linear-gradient(180deg, rgba(245, 158, 11, 0.12), rgba(15, 23, 42, 0.08));
 }
 
-.tone-danger {
-  border-color: rgba(239, 68, 68, 0.24);
-}
-
-.tone-danger.policy-badge,
 .tone-danger .health-chip {
   background: rgba(239, 68, 68, 0.12);
   color: #fca5a5;
 }
 
-.tone-danger.safety-card,
 .tone-danger.battery-card {
   background: linear-gradient(180deg, rgba(239, 68, 68, 0.12), rgba(15, 23, 42, 0.08));
-}
-
-.tone-offline {
-  border-color: rgba(148, 163, 184, 0.24);
-}
-
-.tone-offline.policy-badge {
-  background: rgba(148, 163, 184, 0.12);
-  color: #cbd5e1;
-}
-
-.tone-offline.safety-card {
-  background: linear-gradient(180deg, rgba(148, 163, 184, 0.12), rgba(15, 23, 42, 0.08));
-}
-
-.tone-neutral {
-  border-color: rgba(56, 189, 248, 0.18);
 }
 
 .tone-neutral .health-chip {
