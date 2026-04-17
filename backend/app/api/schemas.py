@@ -64,6 +64,52 @@ class RawHistoryResponse(BaseModel):
     records: list[RawHistoryRecordResponse]
 
 
+class FlightSessionDeviceResponse(BaseModel):
+    payload_index: str
+    device_type: str
+
+
+class FlightSessionSummaryMetricsResponse(BaseModel):
+    total_distance_m: float = 0.0
+    max_altitude_m: float = 0.0
+    max_speed_ms: float = 0.0
+    point_count: int = 0
+
+
+class FlightSessionSummaryResponse(BaseModel):
+    flight_id: str
+    file_name: str
+    drone_id: Optional[str] = None
+    takeoff_time: float
+    landing_time: Optional[float] = None
+    total_distance_m: float = 0.0
+    max_altitude_m: float = 0.0
+    attached_weather_devices: list[FlightSessionDeviceResponse] = Field(default_factory=list)
+
+
+class FlightSessionsResponse(BaseModel):
+    total: int
+    records: list[FlightSessionSummaryResponse]
+
+
+class FlightSessionDetailResponse(BaseModel):
+    flight_id: str
+    file_name: str
+    drone_id: Optional[str] = None
+    status: str = "completed"
+    takeoff_time: float
+    landing_time: Optional[float] = None
+    summary: FlightSessionSummaryMetricsResponse
+    attached_weather_devices: list[FlightSessionDeviceResponse] = Field(default_factory=list)
+    telemetry_records: list[dict[str, Any]] = Field(default_factory=list)
+    psdk_records: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class DeleteFlightSessionResponse(BaseModel):
+    flight_id: str
+    deleted: bool = True
+
+
 class SystemStatusResponse(BaseModel):
     status: str = "ok"
     tcp_server_port: int
@@ -72,4 +118,5 @@ class SystemStatusResponse(BaseModel):
     websocket_clients: int
     database: str
     raw_history_path: str
+    flight_sessions_path: str
     uptime_seconds: Optional[float] = None

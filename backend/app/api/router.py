@@ -1,15 +1,19 @@
-"""REST API routes for system status and history queries."""
+"""REST API routes for system status, telemetry history, and flight sessions."""
 
 from __future__ import annotations
 
 import time
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from app.api.schemas import (
+    DeleteFlightSessionResponse,
     FlightHistoryResponse,
     FlightRecordResponse,
+    FlightSessionDetailResponse,
+    FlightSessionSummaryResponse,
+    FlightSessionsResponse,
     HealthResponse,
     RawHistoryRecordResponse,
     RawHistoryResponse,
@@ -63,6 +67,7 @@ async def system_status() -> SystemStatusResponse:
         websocket_clients=ws.connection_count,
         database=settings.database_url,
         raw_history_path=settings.raw_history_path,
+        flight_sessions_path=settings.flight_sessions_path,
         uptime_seconds=round(time.time() - _start_time, 1),
     )
 
@@ -92,7 +97,38 @@ async def get_raw_history(
         try:
             normalized.append(RawHistoryRecordResponse(**record))
         except Exception:
-            # Skip malformed history row to keep API stable.
             continue
 
     return RawHistoryResponse(total=len(normalized), records=normalized)
+
+
+@router.get("/flights", response_model=FlightSessionsResponse)
+async def get_flights(
+    limit: int = Query(default=100, ge=1, le=1000, description="Max flight sessions"),
+) -> FlightSessionsResponse:
+    storage = get_storage()
+    records = await storage.get_flight_sessions(limit=limit)
+    return FlightSessionsResponse(
+        total=len(records),
+        records=[FlightSessionSummaryResponse(**record) for record in records],
+    )
+
+
+@router.get("/flights/{flight_id}", response_model=FlightSessionDetailResponse)
+async def get_flight_detail(flight_id: str) -> FlightSessionDetailResponse:
+    storage = get_storage()
+    session = await storage.get_flight_session(flight_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Flight session '{flight_id}' not found")
+
+    return FlightSessionDetailResponse(**session)
+
+
+@router.delete("/flights/{flight_id}", response_model=DeleteFlightSessionResponse)
+async def delete_flight(flight_id: str) -> DeleteFlightSessionResponse:
+    storage = get_storage()
+    deleted = await storage.delete_flight_session(flight_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Flight session '{flight_id}' not found")
+
+    return DeleteFlightSessionResponse(flight_id=flight_id, deleted=True)
