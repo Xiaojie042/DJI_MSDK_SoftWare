@@ -3,7 +3,7 @@ import { useWebSocket } from '@/composables/useWebSocket'
 import TopBar from '@/components/dashboard/TopBar.vue'
 import RawDataTerminal from '@/components/dashboard/RawDataTerminal.vue'
 import TelemetryPanel from '@/components/dashboard/TelemetryPanel.vue'
-import WeatherPanel from '@/components/dashboard/WeatherPanel.vue'
+import WeatherSidebar from '@/components/dashboard/WeatherSidebar.vue'
 import DroneMap from '@/components/map/DroneMap.vue'
 
 useWebSocket()
@@ -17,16 +17,16 @@ useWebSocket()
       <section class="map-stage glass-panel">
         <DroneMap />
 
+        <aside class="weather-floating">
+          <WeatherSidebar />
+        </aside>
+
         <div class="map-caption glass-panel">
           <span class="caption-dot"></span>
           <strong>飞行轨迹已启用</strong>
           <span>点击地图中的无人机箭头可查看跟随明细弹窗</span>
         </div>
       </section>
-
-      <aside class="right-sidebar">
-        <WeatherPanel />
-      </aside>
     </main>
 
     <section class="bottom-deck">
@@ -51,9 +51,6 @@ useWebSocket()
 .workspace {
   flex: 1 1 auto;
   min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 330px;
-  gap: 1rem;
 }
 
 .map-stage {
@@ -63,6 +60,16 @@ useWebSocket()
   overflow: hidden;
   border-radius: 26px;
   border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.weather-floating {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 460;
+  width: 300px;
+  height: 650px;
+  pointer-events: auto;
 }
 
 .map-caption {
@@ -96,12 +103,6 @@ useWebSocket()
   font-size: 0.82rem;
 }
 
-.right-sidebar {
-  min-height: 0;
-  height: 100%;
-  display: flex;
-}
-
 .bottom-deck {
   flex: 0 0 150px;
   height: 150px;
@@ -124,24 +125,12 @@ useWebSocket()
   height: 150px;
 }
 
-:deep(.weather-panel) {
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
-@media (max-width: 1380px) {
-  .workspace {
-    grid-template-columns: minmax(0, 1fr) 300px;
-  }
-}
-
 @media (max-width: 1100px) {
-  .workspace {
-    grid-template-columns: 1fr;
-  }
-
-  .right-sidebar {
-    min-height: 0;
+  .weather-floating {
+    top: 0.85rem;
+    right: 0.85rem;
+    transform: scale(0.92);
+    transform-origin: top right;
   }
 }
 
@@ -155,6 +144,10 @@ useWebSocket()
 
   .map-stage {
     min-height: 520px;
+  }
+
+  .weather-floating {
+    display: none;
   }
 
   .map-caption {
