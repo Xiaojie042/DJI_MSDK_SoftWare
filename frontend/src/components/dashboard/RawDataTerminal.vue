@@ -9,6 +9,8 @@ const isExpanded = ref(false)
 const recentFrames = computed(() => store.rawStream.slice(-12))
 const latestFrameTime = computed(() => recentFrames.value.at(-1)?.time || '--:--:--')
 const formatFrame = (payload) => JSON.stringify(payload, null, 2)
+const formatInlineFrame = (payload) =>
+  JSON.stringify(payload ?? {}).replace(/\s+/g, ' ').slice(0, 180) || '{}'
 
 const toggleConsole = () => {
   isExpanded.value = !isExpanded.value
@@ -31,57 +33,64 @@ watch(
 </script>
 
 <template>
-  <section class="raw-data-terminal glass-panel" :class="{ expanded: isExpanded }">
-    <div class="terminal-header">
-      <div class="title-stack">
+  <section class="raw-data-terminal glass-panel">
+    <div class="terminal-mini">
+      <div class="terminal-mini__copy">
         <p class="eyebrow">嵌入式界面</p>
         <div class="console-title">
           <span class="pulse-dot"></span>
           <strong>实时链路控制台</strong>
         </div>
+        <div class="terminal-preview">
+          <span class="preview-time">[{{ latestFrameTime }}]</span>
+          <code class="preview-json">{{ formatInlineFrame(recentFrames.at(-1)?.data) }}</code>
+        </div>
       </div>
 
       <button class="toggle-btn" type="button" @click="toggleConsole">
-        {{ isExpanded ? '收起明细' : '展开明细' }}
+        {{ isExpanded ? '关闭原始数据明细' : '展开原始数据明细' }}
       </button>
     </div>
 
-    <div class="terminal-summary">
-      <div class="summary-chip">
-        <span>原始帧缓存</span>
-        <strong>{{ store.rawStream.length }}</strong>
-      </div>
-      <div class="summary-chip">
-        <span>最近更新时间</span>
-        <strong>{{ latestFrameTime }}</strong>
-      </div>
-      <div class="summary-chip">
-        <span>显示方式</span>
-        <strong>{{ isExpanded ? '嵌入展开' : '点击查看' }}</strong>
-      </div>
+    <div class="terminal-strip">
+      <span>缓存 {{ store.rawStream.length }} 条</span>
+      <span>最近更新 {{ latestFrameTime }}</span>
     </div>
 
-    <transition name="console">
-      <div v-if="isExpanded" class="terminal-shell">
-        <div class="terminal-toolbar">
-          <span>最近 12 条原始转发数据</span>
-          <span>{{ latestFrameTime }}</span>
-        </div>
-
-        <div class="terminal-body" ref="terminalRef">
-          <div v-if="recentFrames.length === 0" class="no-data">
-            [SYS] 等待 TCP 数据帧接入...
-          </div>
-          <article v-for="frame in recentFrames" :key="frame.id" class="code-line">
-            <div class="line-header">
-              <span class="time">[{{ frame.time }}]</span>
-              <span class="tag">RAW JSON</span>
+    <Teleport to="body">
+      <div v-if="isExpanded" class="terminal-overlay" @click.self="toggleConsole">
+        <div class="terminal-modal glass-panel">
+          <div class="terminal-modal__header">
+            <div class="terminal-modal__title">
+              <p class="eyebrow">原始数据浮窗</p>
+              <strong>完整 JSON 明细</strong>
             </div>
-            <pre class="json">{{ formatFrame(frame.data) }}</pre>
-          </article>
+
+            <button class="modal-close" type="button" @click="toggleConsole" aria-label="关闭">
+              &times;
+            </button>
+          </div>
+
+          <div class="terminal-toolbar">
+            <span>最近 12 条原始转发数据</span>
+            <span>{{ latestFrameTime }}</span>
+          </div>
+
+          <div class="terminal-body" ref="terminalRef">
+            <div v-if="recentFrames.length === 0" class="no-data">
+              [SYS] 等待 TCP 数据帧接入...
+            </div>
+            <article v-for="frame in recentFrames" :key="frame.id" class="code-line">
+              <div class="line-header">
+                <span class="time">[{{ frame.time }}]</span>
+                <span class="tag">RAW JSON</span>
+              </div>
+              <pre class="json">{{ formatFrame(frame.data) }}</pre>
+            </article>
+          </div>
         </div>
       </div>
-    </transition>
+    </Teleport>
   </section>
 </template>
 
@@ -89,27 +98,34 @@ watch(
 .raw-data-terminal {
   display: flex;
   flex-direction: column;
-  gap: 0.68rem;
+  justify-content: space-between;
+  gap: 0.5rem;
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  padding: 0.8rem;
+  padding: 0.65rem 0.75rem;
   border-radius: 22px;
   background: rgba(15, 23, 42, 0.88);
   border: 1px solid rgba(56, 189, 248, 0.2);
   box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.35);
 }
 
-.terminal-header {
+.terminal-mini {
   display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
   align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+  min-height: 0;
+}
+
+.terminal-mini__copy {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .eyebrow {
-  margin: 0 0 0.28rem;
-  font-size: 0.68rem;
+  margin: 0 0 0.22rem;
+  font-size: 0.66rem;
   letter-spacing: 0.18em;
   color: rgba(148, 163, 184, 0.8);
   text-transform: uppercase;
@@ -118,12 +134,12 @@ watch(
 .console-title {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.45rem;
   color: #f8fafc;
 }
 
 .console-title strong {
-  font-size: 0.94rem;
+  font-size: 0.9rem;
 }
 
 .pulse-dot {
@@ -135,61 +151,114 @@ watch(
   animation: pulse 1.5s infinite;
 }
 
+.terminal-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.45rem;
+  min-width: 0;
+  padding: 0.55rem 0.68rem;
+  border-radius: 12px;
+  background: rgba(2, 6, 23, 0.68);
+  border: 1px solid rgba(59, 130, 246, 0.18);
+}
+
+.preview-time {
+  flex-shrink: 0;
+  color: #a78bfa;
+  font-size: 0.72rem;
+}
+
+.preview-json {
+  min-width: 0;
+  overflow: hidden;
+  color: #94a3b8;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .toggle-btn {
-  min-width: 108px;
-  padding: 0.45rem 0.72rem;
+  flex-shrink: 0;
+  min-width: 124px;
+  padding: 0.52rem 0.8rem;
   border-radius: 12px;
   border: 1px solid rgba(56, 189, 248, 0.18);
   background: rgba(56, 189, 248, 0.12);
   color: #bae6fd;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
 }
 
-.terminal-summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.55rem;
-}
-
-.summary-chip {
-  padding: 0.56rem 0.68rem;
-  border-radius: 14px;
-  background: rgba(30, 41, 59, 0.58);
-  border: 1px solid rgba(148, 163, 184, 0.14);
-}
-
-.summary-chip span {
-  display: block;
-  margin-bottom: 0.18rem;
-  font-size: 0.68rem;
+.terminal-strip {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.48rem 0.68rem;
+  border-radius: 12px;
+  background: rgba(30, 41, 59, 0.46);
+  border: 1px solid rgba(148, 163, 184, 0.12);
   color: #94a3b8;
+  font-size: 0.72rem;
 }
 
-.summary-chip strong {
-  color: #f8fafc;
-  font-size: 0.84rem;
+.terminal-overlay {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 9999;
+  width: min(800px, calc(100vw - 2rem));
+  height: min(500px, calc(100vh - 2rem));
 }
 
-.terminal-shell {
-  min-height: 0;
-  flex: 1 1 auto;
+.terminal-modal {
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  border-radius: 18px;
   overflow: hidden;
-  border: 1px solid rgba(59, 130, 246, 0.18);
-  background: rgba(2, 6, 23, 0.78);
-  font-family: 'Courier New', Courier, monospace;
+  border-radius: 24px;
+  background: rgba(15, 23, 42, 0.94);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.48);
+}
+
+.terminal-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1rem 0.75rem;
+}
+
+.terminal-modal__title strong {
+  color: #f8fafc;
+  font-size: 1.08rem;
+}
+
+.modal-close {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(30, 41, 59, 0.8);
+  color: #f8fafc;
+  font-size: 1.35rem;
+  line-height: 1;
 }
 
 .terminal-toolbar {
   display: flex;
   justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.5rem 0.7rem;
+  gap: 1rem;
+  padding: 0.72rem 1rem;
   background: rgba(15, 23, 42, 0.82);
   color: #10b981;
-  font-size: 0.72rem;
+  font-size: 0.78rem;
+  border-top: 1px solid rgba(59, 130, 246, 0.14);
   border-bottom: 1px solid rgba(59, 130, 246, 0.14);
 }
 
@@ -197,12 +266,13 @@ watch(
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 0.6rem 0.72rem;
+  padding: 0.85rem 1rem 1rem;
+  scrollbar-width: thin;
 }
 
 .code-line {
-  margin-bottom: 0.55rem;
-  padding: 0.55rem;
+  margin-bottom: 0.8rem;
+  padding: 0.8rem;
   border-radius: 14px;
   background: rgba(15, 23, 42, 0.5);
   border: 1px solid rgba(148, 163, 184, 0.12);
@@ -211,9 +281,9 @@ watch(
 .line-header {
   display: flex;
   justify-content: space-between;
-  gap: 0.55rem;
+  gap: 0.75rem;
   align-items: center;
-  margin-bottom: 0.35rem;
+  margin-bottom: 0.55rem;
 }
 
 .time {
@@ -229,8 +299,8 @@ watch(
 .json {
   margin: 0;
   color: #94a3b8;
-  font-size: 11px;
-  line-height: 1.38;
+  font-size: 12px;
+  line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -240,17 +310,6 @@ watch(
   font-style: italic;
 }
 
-.console-enter-active,
-.console-leave-active {
-  transition: all 0.22s ease;
-}
-
-.console-enter-from,
-.console-leave-to {
-  opacity: 0;
-  transform: translateY(8px);
-}
-
 @keyframes pulse {
   0% { opacity: 1; }
   50% { opacity: 0.3; }
@@ -258,14 +317,23 @@ watch(
 }
 
 @media (max-width: 900px) {
-  .terminal-summary {
-    grid-template-columns: 1fr;
-  }
-
-  .terminal-header,
-  .terminal-toolbar {
+  .terminal-mini,
+  .terminal-toolbar,
+  .terminal-strip {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .terminal-overlay {
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    width: auto;
+    height: min(500px, calc(100vh - 1.5rem));
+  }
+
+  .terminal-modal {
+    height: 100%;
   }
 }
 </style>

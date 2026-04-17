@@ -61,33 +61,104 @@ const trackDistanceText = computed(() =>
 const batteryScoreText = computed(() =>
   store.batteryHealth.score === null ? '--' : `${store.batteryHealth.score}`
 )
+
+const hasValue = (value) => value !== undefined && value !== null && value !== ''
+
+const readPath = (source, path) => {
+  if (!source || typeof source !== 'object') {
+    return undefined
+  }
+
+  if (Object.prototype.hasOwnProperty.call(source, path)) {
+    return source[path]
+  }
+
+  return path.split('.').reduce((current, segment) => {
+    if (!current || typeof current !== 'object') {
+      return undefined
+    }
+
+    return current[segment]
+  }, source)
+}
+
+const latestFlightPayload = () => {
+  for (let index = store.rawStream.length - 1; index >= 0; index -= 1) {
+    const candidate = store.rawStream[index]?.data
+
+    if (candidate && typeof candidate === 'object' && candidate.type !== 'psdk_data') {
+      return candidate
+    }
+  }
+
+  return null
+}
+
+const readFlightValue = (paths, fallback = null) => {
+  const payload = latestFlightPayload()
+
+  if (!payload) {
+    return fallback
+  }
+
+  for (const path of paths) {
+    const value = readPath(payload, path)
+    if (hasValue(value)) {
+      return value
+    }
+  }
+
+  return fallback
+}
+
+const formatIntegerMetric = (value, suffix = '') => {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? `${Math.round(numeric)}${suffix}` : '--'
+}
+
+const formatFailsafeAction = () => {
+  const value = readFlightValue(['failsafe_action'], null)
+  return hasValue(value) ? String(value).replace(/_/g, ' ') : '--'
+}
+
+const formatDistanceLimit = () => {
+  const enabled = readFlightValue(['distance_limit_enabled'], null)
+  const limit = readFlightValue(['distance_limit'], null)
+  const hasLimit = Number.isFinite(Number(limit))
+
+  if (enabled === false && hasLimit) {
+    return `OFF / ${Math.round(Number(limit))} m`
+  }
+
+  if (enabled === false) {
+    return 'OFF'
+  }
+
+  return hasLimit ? `${Math.round(Number(limit))} m` : '--'
+}
 </script>
 
 <template>
   <section class="telemetry-panel glass-panel">
-    <header class="panel-header">
-      <div>
-        <p class="eyebrow">安全与调试</p>
-        <h3>飞控状态总览</h3>
-      </div>
-      <div class="policy-badge" :class="safetyTone">{{ store.safetyPolicy.badge }}</div>
-    </header>
-
     <div class="panel-grid">
       <article class="status-card safety-card" :class="safetyTone">
-        <span class="card-label">安全策略</span>
+        <div class="card-topline">
+          <span class="card-label">安全策略</span>
+          <div class="policy-badge" :class="safetyTone">{{ store.safetyPolicy.badge }}</div>
+        </div>
         <strong>{{ store.safetyPolicy.title }}</strong>
-        <p>{{ store.safetyPolicy.description }}</p>
-        <small>{{ store.safetyPolicy.action }}</small>
+        <p class="clamp-two">{{ store.safetyPolicy.description }}</p>
+        <small class="clamp-one">{{ store.safetyPolicy.action }}</small>
       </article>
 
       <article class="status-card battery-card" :class="healthTone">
-        <div class="battery-topline">
-          <span class="card-label">电池健康度</span>
+        <div class="card-topline">
+          <span class="card-label">电池与状态</span>
           <div class="health-chip">{{ batteryScoreText }}</div>
         </div>
         <strong>{{ store.batteryHealth.label }}</strong>
-        <p>{{ store.batteryHealth.summary }}</p>
+        <p class="clamp-two">{{ store.batteryHealth.summary }}</p>
+
         <div class="health-metrics">
           <div>
             <span>电压</span>
@@ -98,18 +169,36 @@ const batteryScoreText = computed(() =>
             <strong>{{ (store.droneState.battery.temperature || 0).toFixed(1) }} °C</strong>
           </div>
           <div>
-            <span>累计航迹</span>
+            <span>航迹</span>
             <strong>{{ trackDistanceText }}</strong>
           </div>
         </div>
+
+        <small class="status-footnote">最近保存 {{ localSavedTime }}</small>
       </article>
 
-      <article class="status-card debug-card">
-        <span class="card-label">调试信息</span>
-        <div class="debug-grid">
-          <div v-for="item in debugItems" :key="item.label" class="debug-item">
-            <span>{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
+      <article class="status-card limits-card">
+        <div class="card-topline">
+          <span class="card-label">安全与限制</span>
+          <strong class="limits-title">2x2</strong>
+        </div>
+
+        <div class="limits-grid">
+          <div class="limit-item">
+            <span>返航高度 (RTH)</span>
+            <strong>{{ formatIntegerMetric(readFlightValue(['go_home_height'], null), ' m') }}</strong>
+          </div>
+          <div class="limit-item">
+            <span>限高 (H-LIM)</span>
+            <strong>{{ formatIntegerMetric(readFlightValue(['height_limit'], null), ' m') }}</strong>
+          </div>
+          <div class="limit-item">
+            <span>限远 (D-LIM)</span>
+            <strong>{{ formatDistanceLimit() }}</strong>
+          </div>
+          <div class="limit-item">
+            <span>失控动作 (F-SAFE)</span>
+            <strong>{{ formatFailsafeAction() }}</strong>
           </div>
         </div>
       </article>
@@ -121,76 +210,59 @@ const batteryScoreText = computed(() =>
 .telemetry-panel {
   display: flex;
   flex-direction: column;
-  gap: 0.72rem;
   height: 100%;
-  overflow: auto;
-  padding: 0.8rem;
-  border-radius: 22px;
   min-height: 0;
-  scrollbar-width: none;
-}
-
-.telemetry-panel::-webkit-scrollbar {
-  display: none;
-}
-
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
-  align-items: flex-start;
-}
-
-.eyebrow {
-  margin: 0 0 0.25rem;
-  font-size: 0.68rem;
-  letter-spacing: 0.18em;
-  color: rgba(148, 163, 184, 0.8);
-  text-transform: uppercase;
-}
-
-h3 {
-  margin: 0;
-  color: #f8fafc;
-  font-size: 1rem;
-}
-
-.policy-badge {
-  padding: 0.45rem 0.82rem;
-  border-radius: 999px;
-  font-size: 0.8rem;
-  font-weight: 700;
-  border: 1px solid transparent;
+  overflow: hidden;
+  padding: 0.35rem 0.75rem;
+  border-radius: 22px;
 }
 
 .panel-grid {
-  display: grid;
-  grid-template-columns: 1.05fr 1.15fr 1.35fr;
-  gap: 0.7rem;
+  flex: 1 1 auto;
   min-height: 0;
-  align-content: start;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
 }
 
 .status-card {
+  flex: 1 1 0;
+  min-width: 0;
   min-height: 0;
-  border-radius: 18px;
-  padding: 0.78rem;
-  background: rgba(15, 23, 42, 0.68);
-  border: 1px solid rgba(148, 163, 184, 0.14);
+  display: flex;
+  flex-direction: column;
+  gap: 0.42rem;
+  padding: 0.45rem 0.9rem;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.status-card + .status-card {
+  border-left: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.card-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
 .card-label {
   display: block;
-  margin-bottom: 0.28rem;
   color: #94a3b8;
-  font-size: 0.72rem;
+  font-size: 0.64rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .status-card strong {
   display: block;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0;
   color: #f8fafc;
-  font-size: 0.96rem;
+  font-size: 0.88rem;
 }
 
 .status-card p,
@@ -198,64 +270,94 @@ h3 {
   display: block;
   margin: 0;
   color: #94a3b8;
-  line-height: 1.4;
-  font-size: 0.8rem;
+  line-height: 1.28;
+  font-size: 0.72rem;
 }
 
-.status-card small {
-  margin-top: 0.45rem;
+.clamp-one,
+.clamp-two {
+  display: -webkit-box !important;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
 }
 
-.battery-topline {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  align-items: center;
+.clamp-one {
+  -webkit-line-clamp: 1;
+}
+
+.clamp-two {
+  -webkit-line-clamp: 2;
+}
+
+.policy-badge {
+  padding: 0.24rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  border: 1px solid transparent;
 }
 
 .health-chip {
-  min-width: 54px;
+  min-width: 42px;
   text-align: center;
-  padding: 0.3rem 0.55rem;
+  padding: 0.18rem 0.42rem;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.9);
   color: #f8fafc;
   font-weight: 700;
+  font-size: 0.72rem;
 }
 
 .health-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.52rem;
-  margin-top: 0.55rem;
+  gap: 0.4rem;
+  margin-top: auto;
 }
 
 .health-metrics div,
-.debug-item {
-  padding: 0.52rem 0.6rem;
-  border-radius: 14px;
-  background: rgba(30, 41, 59, 0.6);
+.limit-item {
+  padding: 0.42rem 0.5rem;
+  border-radius: 10px;
+  background: rgba(30, 41, 59, 0.46);
   border: 1px solid rgba(148, 163, 184, 0.1);
 }
 
 .health-metrics span,
-.debug-item span {
+.limit-item span {
   display: block;
-  margin-bottom: 0.18rem;
+  margin-bottom: 0.15rem;
   color: #94a3b8;
-  font-size: 0.68rem;
+  font-size: 0.62rem;
+  line-height: 1.2;
 }
 
 .health-metrics strong,
-.debug-item strong {
+.limit-item strong {
   margin-bottom: 0;
-  font-size: 0.82rem;
+  font-size: 0.75rem;
+  line-height: 1.2;
 }
 
-.debug-grid {
+.status-footnote {
+  margin-top: 0.42rem;
+}
+
+.limits-card {
+  justify-content: space-between;
+}
+
+.limits-title {
+  color: #7dd3fc;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.limits-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.52rem;
+  gap: 10px;
+  margin-top: auto;
 }
 
 .tone-good {
@@ -270,7 +372,7 @@ h3 {
 
 .tone-good.safety-card,
 .tone-good.battery-card {
-  background: linear-gradient(180deg, rgba(34, 197, 94, 0.12), rgba(15, 23, 42, 0.7));
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.12), rgba(15, 23, 42, 0.08));
 }
 
 .tone-warning {
@@ -285,7 +387,7 @@ h3 {
 
 .tone-warning.safety-card,
 .tone-warning.battery-card {
-  background: linear-gradient(180deg, rgba(245, 158, 11, 0.12), rgba(15, 23, 42, 0.7));
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.12), rgba(15, 23, 42, 0.08));
 }
 
 .tone-danger {
@@ -300,7 +402,7 @@ h3 {
 
 .tone-danger.safety-card,
 .tone-danger.battery-card {
-  background: linear-gradient(180deg, rgba(239, 68, 68, 0.12), rgba(15, 23, 42, 0.7));
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.12), rgba(15, 23, 42, 0.08));
 }
 
 .tone-offline {
@@ -313,7 +415,7 @@ h3 {
 }
 
 .tone-offline.safety-card {
-  background: linear-gradient(180deg, rgba(148, 163, 184, 0.12), rgba(15, 23, 42, 0.7));
+  background: linear-gradient(180deg, rgba(148, 163, 184, 0.12), rgba(15, 23, 42, 0.08));
 }
 
 .tone-neutral {
@@ -326,24 +428,17 @@ h3 {
 }
 
 .tone-neutral.battery-card {
-  background: linear-gradient(180deg, rgba(56, 189, 248, 0.1), rgba(15, 23, 42, 0.7));
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.1), rgba(15, 23, 42, 0.08));
 }
 
 @media (max-width: 1320px) {
   .panel-grid {
-    grid-template-columns: 1fr;
+    flex-direction: column;
   }
 
-  .debug-grid,
-  .health-metrics {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 900px) {
-  .debug-grid,
-  .health-metrics {
-    grid-template-columns: 1fr 1fr;
+  .status-card + .status-card {
+    border-left: none;
+    border-top: 1px solid rgba(148, 163, 184, 0.18);
   }
 }
 </style>
