@@ -20,12 +20,6 @@ useWebSocket()
         <aside class="weather-floating">
           <WeatherSidebar />
         </aside>
-
-        <div class="map-caption glass-panel">
-          <span class="caption-dot"></span>
-          <strong>飞行轨迹已启用</strong>
-          <span>点击地图中的无人机箭头可查看跟随明细弹窗</span>
-        </div>
       </section>
     </main>
 
@@ -68,39 +62,8 @@ useWebSocket()
   right: 0.7rem;
   z-index: 460;
   width: 300px;
-  height: 608px;
+  height: 596px;
   pointer-events: auto;
-}
-
-.map-caption {
-  position: absolute;
-  left: 1rem;
-  bottom: 1rem;
-  z-index: 450;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.7rem;
-  padding: 0.75rem 1rem;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.78);
-}
-
-.caption-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #22d3ee;
-  box-shadow: 0 0 14px rgba(34, 211, 238, 0.7);
-}
-
-.map-caption strong {
-  color: #f8fafc;
-  font-size: 0.92rem;
-}
-
-.map-caption span:last-child {
-  color: #94a3b8;
-  font-size: 0.82rem;
 }
 
 .bottom-deck {
@@ -148,13 +111,6 @@ useWebSocket()
 
   .weather-floating {
     display: none;
-  }
-
-  .map-caption {
-    left: 0.75rem;
-    right: 0.75rem;
-    bottom: 0.75rem;
-    justify-content: center;
   }
 }
 </style>

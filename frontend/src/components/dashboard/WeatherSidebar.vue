@@ -5,20 +5,29 @@ import { useDroneStore } from '@/stores/droneStore'
 const store = useDroneStore()
 const INVALID_MARKER = '///'
 
-const findLatestPsdkFrame = (deviceType) => {
+const findLatestFrame = (matcher) => {
   for (let index = store.rawStream.length - 1; index >= 0; index -= 1) {
     const candidate = store.rawStream[index]?.data
-    if (
-      candidate &&
-      typeof candidate === 'object' &&
-      candidate.type === 'psdk_data' &&
-      candidate.device_type === deviceType
-    ) {
+    if (candidate && typeof candidate === 'object' && matcher(candidate)) {
       return candidate
     }
   }
 
   return null
+}
+
+const readPath = (source, path) => {
+  if (!source || typeof source !== 'object') {
+    return undefined
+  }
+
+  return path.split('.').reduce((current, segment) => {
+    if (!current || typeof current !== 'object') {
+      return undefined
+    }
+
+    return current[segment]
+  }, source)
 }
 
 const readMetricValue = (...values) => {
@@ -44,8 +53,14 @@ const formatMetric = (value, digits = 1, unit = '') => {
   return `${value.toFixed(digits)}${unit}`
 }
 
-const weatherPayload = computed(() => findLatestPsdkFrame('weather')?.parsed_data || {})
-const visibilityPayload = computed(() => findLatestPsdkFrame('visibility')?.parsed_data || {})
+const latestWeatherFrame = computed(() => findLatestFrame((item) => item.type === 'psdk_data' && item.device_type === 'weather'))
+const latestVisibilityFrame = computed(() =>
+  findLatestFrame((item) => item.type === 'psdk_data' && item.device_type === 'visibility')
+)
+const latestFlightFrame = computed(() => findLatestFrame((item) => item.type !== 'psdk_data'))
+
+const weatherPayload = computed(() => latestWeatherFrame.value?.parsed_data || {})
+const visibilityPayload = computed(() => latestVisibilityFrame.value?.parsed_data || {})
 
 const weather = computed(() => {
   const windDirection = readMetricValue(
@@ -64,13 +79,13 @@ const weather = computed(() => {
     visibilityPayload.value.visibility_1min_m,
     visibilityPayload.value.visibility_10min_m
   )
-  const altitudeDisplay = computed(() => {
-  const alt = store.droneState?.position?.altitude
-  if (!Number.isFinite(alt)) {
-    return '/'
-  }
-  return `${alt.toFixed(1)} m`
-})
+  const altitude = readMetricValue(
+    readPath(latestFlightFrame.value, 'location.altitude'),
+    readPath(latestFlightFrame.value, 'aircraft_status.aircraft_location.altitude'),
+    readPath(latestFlightFrame.value, 'position.altitude'),
+    latestFlightFrame.value?.altitude,
+    store.droneState?.position?.altitude
+  )
 
   return {
     windSpeed,
@@ -78,6 +93,7 @@ const weather = computed(() => {
     temperature,
     humidity,
     pressure,
+    altitude,
     visibility,
     compassAngle: Number.isFinite(windDirection) ? windDirection : 0,
     visibilityPercent: Number.isFinite(visibility) ? Math.min((visibility / 10000) * 100, 100) : 0
@@ -100,6 +116,10 @@ const detailRows = computed(() => [
   {
     label: '气压',
     value: formatMetric(weather.value.pressure, 1, ' hPa')
+  },
+  {
+    label: '海拔高度',
+    value: formatMetric(weather.value.altitude, 1, ' m')
   }
 ])
 
@@ -150,10 +170,7 @@ const visibilityDisplay = computed(() => {
         </div>
 
         <div class="center-hub">
-          <div
-            class="speed-value"
-            :class="{ 'text-danger': Number.isFinite(weather.windSpeed) && weather.windSpeed > 10 }"
-          >
+          <div class="speed-value" :class="{ 'text-danger': Number.isFinite(weather.windSpeed) && weather.windSpeed > 10 }">
             {{ Number.isFinite(weather.windSpeed) ? weather.windSpeed.toFixed(1) : '/' }}
           </div>
           <div class="speed-unit">m/s</div>
@@ -171,10 +188,7 @@ const visibilityDisplay = computed(() => {
     <div class="visibility-section">
       <div class="data-row">
         <span class="label">能见度</span>
-        <span
-          class="value"
-          :class="{ 'text-danger': Number.isFinite(weather.visibility) && weather.visibility < 1000 }"
-        >
+        <span class="value" :class="{ 'text-danger': Number.isFinite(weather.visibility) && weather.visibility < 1000 }">
           {{ visibilityDisplay }}
         </span>
       </div>
@@ -191,15 +205,15 @@ const visibilityDisplay = computed(() => {
 
 <style scoped>
 .weather-sidebar {
-  --sidebar-height: 608px;
-  --compass-size: 248px;
+  --sidebar-height: 596px;
+  --compass-size: 232px;
 
   width: 300px;
   height: var(--sidebar-height);
-  padding: 12px 14px;
+  padding: 10px 14px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   box-sizing: border-box;
   color: var(--text-main);
   background: var(--bg-panel);
@@ -211,7 +225,7 @@ const visibilityDisplay = computed(() => {
 }
 
 .compass-section {
-  flex: 0 0 258px;
+  flex: 0 0 238px;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -247,7 +261,7 @@ const visibilityDisplay = computed(() => {
   bottom: 50%;
   left: calc(50% - 2px);
   width: 4px;
-  height: 110px;
+  height: 104px;
   border-radius: 999px 999px 0 0;
   background: linear-gradient(180deg, #60a5fa 0%, var(--primary) 100%);
 }
@@ -267,7 +281,7 @@ const visibilityDisplay = computed(() => {
   top: 50%;
   left: calc(50% - 1.5px);
   width: 3px;
-  height: 86px;
+  height: 80px;
   border-radius: 0 0 999px 999px;
   background: rgba(148, 163, 184, 0.38);
 }
@@ -276,8 +290,8 @@ const visibilityDisplay = computed(() => {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 76px;
-  height: 76px;
+  width: 72px;
+  height: 72px;
   transform: translate(-50%, -50%);
   border-radius: 50%;
   background: rgba(15, 23, 42, 0.94);
@@ -291,7 +305,7 @@ const visibilityDisplay = computed(() => {
 }
 
 .speed-value {
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 800;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -308,8 +322,8 @@ const visibilityDisplay = computed(() => {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 14px;
-  padding: 10px 4px;
+  gap: 10px;
+  padding: 8px 4px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
@@ -324,11 +338,11 @@ const visibilityDisplay = computed(() => {
 .label {
   color: var(--text-muted);
   font-size: 14px;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
 }
 
 .value {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -336,7 +350,7 @@ const visibilityDisplay = computed(() => {
 .visibility-section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   padding-top: 2px;
 }
 
