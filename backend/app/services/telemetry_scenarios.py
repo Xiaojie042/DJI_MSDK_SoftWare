@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import math
+import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -19,39 +20,110 @@ class ScenarioStep:
     payload: dict[str, Any]
 
 
+HUNAN_LAT_RANGE = (26.9, 29.4)
+HUNAN_LNG_RANGE = (109.8, 113.8)
+BASE_DISTANCE_SCALE = 0.43
+PSDK_PORT = "PORT_3"
+
+
+def _create_rng(seed: Optional[int]) -> random.Random:
+    return random.Random(seed)
+
+
+def _derive_seed(seed: Optional[int], offset: int) -> Optional[int]:
+    return None if seed is None else seed + offset
+
+
+def _select_hunan_home(rng: random.Random) -> tuple[float, float]:
+    latitude = round(rng.uniform(*HUNAN_LAT_RANGE), 7)
+    longitude = round(rng.uniform(*HUNAN_LNG_RANGE), 7)
+    return latitude, longitude
+
+
+def _clamp_int(value: float, minimum: int, maximum: int) -> int:
+    return max(minimum, min(maximum, int(round(value))))
+
+
+def _randomize_phase_specs(
+    phase_specs: list[dict[str, Any]],
+    cycle_seconds: int,
+    rng: random.Random,
+) -> list[dict[str, Any]]:
+    scale = max(0.18, (cycle_seconds / 30.0) * BASE_DISTANCE_SCALE * rng.uniform(0.94, 1.06))
+    heading_bias = rng.uniform(-4.0, 4.0)
+    lateral_bias = rng.uniform(-6.0, 6.0)
+    altitude_bias = rng.uniform(0.95, 1.06)
+    wind_bias = rng.uniform(-1.0, 1.5)
+
+    randomized_specs: list[dict[str, Any]] = []
+    for phase in phase_specs:
+        item = dict(phase)
+        progress = float(item["progress"])
+        wave = math.sin(progress * math.pi)
+
+        item["east_m"] = round(float(item["east_m"]) * scale + wave * rng.uniform(-5.0, 5.0), 3)
+        item["north_m"] = round(float(item["north_m"]) * scale + wave * lateral_bias, 3)
+        item["heading"] = round(float(item["heading"]) + heading_bias + rng.uniform(-2.0, 2.0), 1)
+        item["wind_speed"] = max(1, int(round(float(item["wind_speed"]) + wind_bias + rng.uniform(-1.0, 1.0))))
+        item["battery_temp_c"] = round(float(item["battery_temp_c"]) + rng.uniform(-0.4, 0.8), 1)
+        item["gps_satellite_count"] = _clamp_int(float(item["gps_satellite_count"]) + rng.uniform(-1.0, 1.0), 5, 20)
+        item["link_quality"] = _clamp_int(float(item["link_quality"]) + rng.uniform(-2.0, 2.0), 10, 100)
+
+        altitude = float(item["altitude_m"])
+        if altitude > 0:
+            item["altitude_m"] = round(max(altitude * altitude_bias + rng.uniform(-2.0, 2.0), 1.5), 2)
+        else:
+            item["altitude_m"] = 0.0
+
+        if not bool(item["is_flying"]):
+            item["east_m"] = 0.0
+            item["north_m"] = 0.0
+            item["altitude_m"] = 0.0
+
+        randomized_specs.append(item)
+
+    return randomized_specs
+
+
 def build_m400_mission_scenario(
     start_time: Optional[datetime] = None,
     cycle_seconds: float = 30.0,
+    seed: Optional[int] = None,
 ) -> list[ScenarioStep]:
     """Build the baseline M400 mission profile."""
     return _build_flight_scenario(
         phase_specs=_base_mission_phase_specs(),
         start_time=start_time,
         cycle_seconds=cycle_seconds,
+        seed=seed,
     )
 
 
 def build_m400_fault_scenario(
     start_time: Optional[datetime] = None,
     cycle_seconds: float = 30.0,
+    seed: Optional[int] = None,
 ) -> list[ScenarioStep]:
     """Build an M400 mission profile with realistic operational degradations."""
     return _build_flight_scenario(
         phase_specs=_fault_mission_phase_specs(),
         start_time=start_time,
         cycle_seconds=cycle_seconds,
+        seed=seed,
     )
 
 
 def build_m400_mixed_stream_scenario(
     start_time: Optional[datetime] = None,
     cycle_seconds: float = 30.0,
+    seed: Optional[int] = None,
 ) -> list[ScenarioStep]:
     """
     Build a mixed stream that interleaves flight telemetry with PSDK weather
     and visibility payloads.
     """
-    flight_steps = build_m400_fault_scenario(start_time=start_time, cycle_seconds=cycle_seconds)
+    flight_steps = build_m400_fault_scenario(start_time=start_time, cycle_seconds=cycle_seconds, seed=seed)
+    rng = _create_rng(_derive_seed(seed, 101))
     mixed_steps: list[ScenarioStep] = []
 
     for step in flight_steps:
@@ -67,28 +139,28 @@ def build_m400_mixed_stream_scenario(
             )
         elif step.name == "gps_signal_degraded":
             mixed_steps.append(
-                _build_weather_step(
-                    "weather_snapshot_gps_degraded",
-                    timestamp + timedelta(milliseconds=150),
-                    relative_wind_direction="72",
-                    relative_wind_speed="4.80",
-                    temperature="27.4",
-                    humidity="58.3",
-                    pressure="931.5",
-                    compass_heading="18",
-                    true_wind_direction="74.2",
-                    true_wind_speed="5.36",
+                    _build_weather_step(
+                        "weather_snapshot_gps_degraded",
+                        timestamp + timedelta(milliseconds=150),
+                        relative_wind_direction=str(_clamp_int(72 + rng.uniform(-12.0, 14.0), 0, 359)),
+                        relative_wind_speed=f"{max(1.6, 4.8 + rng.uniform(-0.6, 0.9)):.2f}",
+                        temperature=f"{27.4 + rng.uniform(-1.0, 1.1):.1f}",
+                        humidity=f"{58.3 + rng.uniform(-4.0, 4.5):.1f}",
+                        pressure=f"{931.5 + rng.uniform(-3.0, 2.0):.1f}",
+                        compass_heading=str(_clamp_int(18 + rng.uniform(-10.0, 12.0), 0, 359)),
+                        true_wind_direction=f"{74.2 + rng.uniform(-8.0, 8.0):.1f}",
+                        true_wind_speed=f"{max(2.2, 5.36 + rng.uniform(-0.7, 0.9)):.2f}",
+                    )
                 )
-            )
         elif step.name == "battery_anomaly_detected":
             mixed_steps.append(
                 _build_visibility_step(
                     "visibility_snapshot_battery_anomaly",
                     timestamp + timedelta(milliseconds=150),
-                    visibility_10s="01580",
-                    visibility_1min="01620",
-                    visibility_10min="01650",
-                    voltage="11.2",
+                    visibility_10s=f"{_clamp_int(1580 + rng.uniform(-120.0, 80.0), 600, 9000):05d}",
+                    visibility_1min=f"{_clamp_int(1620 + rng.uniform(-110.0, 90.0), 650, 9000):05d}",
+                    visibility_10min=f"{_clamp_int(1650 + rng.uniform(-100.0, 120.0), 700, 9000):05d}",
+                    voltage=f"{max(10.6, 11.2 + rng.uniform(-0.3, 0.2)):.2f}",
                 )
             )
 
@@ -98,38 +170,67 @@ def build_m400_mixed_stream_scenario(
 def build_m400_weather_device_scenario(
     start_time: Optional[datetime] = None,
     cycle_seconds: float = 30.0,
+    seed: Optional[int] = None,
 ) -> list[ScenarioStep]:
     """Build a weather-device-only stream for PSDK weather and visibility testing."""
-    start = start_time or datetime(2026, 4, 16, 10, 30, 0)
+    start = start_time or datetime.now().replace(microsecond=0)
     safe_cycle_seconds = max(5, int(round(float(cycle_seconds))))
+    rng = _create_rng(seed)
+    direction_base = rng.uniform(32.0, 118.0)
+    relative_speed_base = rng.uniform(0.25, 1.25)
+    temperature_base = rng.uniform(18.5, 29.5)
+    humidity_base = rng.uniform(46.0, 74.0)
+    pressure_base = rng.uniform(990.0, 1008.0)
+    compass_base = rng.uniform(12.0, 92.0)
+    true_direction_base = direction_base + rng.uniform(-16.0, 18.0)
+    true_speed_base = relative_speed_base + rng.uniform(0.9, 2.2)
+    visibility_base = rng.uniform(1500.0, 4200.0)
+    voltage_base = rng.uniform(11.1, 12.2)
     steps: list[ScenarioStep] = []
 
     for second in range(safe_cycle_seconds + 1):
         base_time = start + timedelta(seconds=second)
+        progress = second / max(1, safe_cycle_seconds)
+        gust_wave = math.sin(progress * math.pi * 2.2 + rng.uniform(-0.08, 0.08))
+        weather_drift = math.sin(progress * math.pi * 1.4)
+        temperature = temperature_base + weather_drift * 2.4 + rng.uniform(-0.35, 0.35)
+        humidity = humidity_base - weather_drift * 5.0 + rng.uniform(-1.0, 1.0)
+        pressure = pressure_base + math.cos(progress * math.pi * 1.1) * 2.8 + rng.uniform(-0.4, 0.4)
+        rel_direction = (direction_base + second * rng.uniform(3.4, 5.8) + gust_wave * 22.0) % 360.0
+        rel_speed = max(0.0, relative_speed_base + gust_wave * 0.9 + rng.uniform(-0.08, 0.08))
+        compass_heading = (compass_base + second * rng.uniform(2.6, 4.2)) % 360.0
+        true_direction = (true_direction_base + second * rng.uniform(3.8, 6.5) + gust_wave * 18.0) % 360.0
+        true_speed = max(0.2, true_speed_base + gust_wave * 0.85 + rng.uniform(-0.08, 0.08))
+
         steps.append(
             _build_weather_step(
                 name=f"weather_device_{second:02d}",
                 timestamp=base_time,
-                relative_wind_direction=str((56 + second * 5) % 360),
-                relative_wind_speed=f"{0.30 + (second % 6) * 0.18:.2f}",
-                temperature=f"{24.0 + second * 0.1:.1f}",
-                humidity=f"{63.7 - second * 0.2:.1f}",
-                pressure=f"{1003.9 - second * 0.25:.1f}",
-                compass_heading=str((44 + second * 4) % 360),
-                true_wind_direction=f"{12.5 + second * 4.3:.1f}",
-                true_wind_speed=f"{1.80 + second * 0.07:.2f}",
+                relative_wind_direction=str(int(round(rel_direction)) % 360),
+                relative_wind_speed=f"{rel_speed:.2f}",
+                temperature=f"{temperature:.1f}",
+                humidity=f"{max(18.0, min(95.0, humidity)):.1f}",
+                pressure=f"{max(940.0, min(1045.0, pressure)):.1f}",
+                compass_heading=str(int(round(compass_heading)) % 360),
+                true_wind_direction=f"{true_direction:.1f}",
+                true_wind_speed=f"{true_speed:.2f}",
             )
         )
 
         if second < safe_cycle_seconds:
+            visibility_wave = math.sin(progress * math.pi * 1.6 + 0.6)
+            visibility_10s = _clamp_int(visibility_base + visibility_wave * 420.0 + rng.uniform(-80.0, 80.0), 600, 9000)
+            visibility_1min = _clamp_int(visibility_base + visibility_wave * 360.0 + rng.uniform(-60.0, 60.0), 650, 9000)
+            visibility_10min = _clamp_int(visibility_base + visibility_wave * 300.0 + rng.uniform(-40.0, 40.0), 700, 9000)
+            voltage = max(10.8, voltage_base - progress * 0.5 + rng.uniform(-0.05, 0.05))
             steps.append(
                 _build_visibility_step(
                     name=f"visibility_device_{second:02d}",
                     timestamp=base_time + timedelta(milliseconds=500),
-                    visibility_10s=f"{max(600, 1820 - second * 18):05d}",
-                    visibility_1min=f"{max(650, 1872 - second * 16):05d}",
-                    visibility_10min=f"{max(700, 1900 - second * 12):05d}",
-                    voltage=f"{11.50 - min(second, 20) * 0.02:.2f}",
+                    visibility_10s=f"{visibility_10s:05d}",
+                    visibility_1min=f"{visibility_1min:05d}",
+                    visibility_10min=f"{visibility_10min:05d}",
+                    voltage=f"{voltage:.2f}",
                 )
             )
 
@@ -140,27 +241,42 @@ def _build_flight_scenario(
     phase_specs: list[dict[str, Any]],
     start_time: Optional[datetime],
     cycle_seconds: float,
+    seed: Optional[int] = None,
 ) -> list[ScenarioStep]:
-    home_lat = 31.2304
-    home_lng = 121.4737
-    start = start_time or datetime(2026, 4, 16, 10, 0, 0)
+    rng = _create_rng(seed)
+    home_lat, home_lng = _select_hunan_home(rng)
+    start = start_time or datetime.now().replace(microsecond=0)
     safe_cycle_seconds = max(5, int(round(float(cycle_seconds))))
     base_payload = _build_base_payload(home_lat, home_lng)
-    phase_timeline = _build_phase_timeline(phase_specs, safe_cycle_seconds)
+    randomized_phase_specs = _randomize_phase_specs(phase_specs, safe_cycle_seconds, rng)
+    phase_timeline = _build_phase_timeline(randomized_phase_specs, safe_cycle_seconds)
 
     steps: list[ScenarioStep] = []
+    previous_position: Optional[dict[str, float]] = None
+    previous_timestamp: Optional[datetime] = None
     for second in range(safe_cycle_seconds + 1):
         phase, phase_name = _resolve_phase_for_second(phase_timeline, second)
+        current_timestamp = start + timedelta(seconds=second)
         payload = _build_flight_payload(
             base_payload=base_payload,
             phase=phase,
-            timestamp=start + timedelta(seconds=second),
+            timestamp=current_timestamp,
             elapsed_seconds=second,
             home_lat=home_lat,
             home_lng=home_lng,
+            previous_position=previous_position,
+            previous_timestamp=previous_timestamp,
         )
         step_name = phase_name or f"sample_{second:02d}"
         steps.append(ScenarioStep(name=step_name, payload=payload))
+        previous_position = {
+            "latitude": payload["location"]["latitude"],
+            "longitude": payload["location"]["longitude"],
+            "altitude": payload["relative_altitude"],
+            "east_m": float(phase["east_m"]),
+            "north_m": float(phase["north_m"]),
+        }
+        previous_timestamp = current_timestamp
 
     return steps
 
@@ -247,10 +363,10 @@ def _build_flight_payload(
     elapsed_seconds: int,
     home_lat: float,
     home_lng: float,
+    previous_position: Optional[dict[str, float]] = None,
+    previous_timestamp: Optional[datetime] = None,
 ) -> dict[str, Any]:
     altitude_m = float(phase["altitude_m"])
-    horizontal_speed = float(phase["horizontal_speed"])
-    vertical_speed = float(phase["vertical_speed"])
     latitude, longitude = _offset_coordinates(
         home_lat,
         home_lng,
@@ -258,6 +374,31 @@ def _build_flight_payload(
         north_m=float(phase["north_m"]),
     )
     home_distance = _distance_meters(home_lat, home_lng, latitude, longitude)
+
+    if previous_position and previous_timestamp:
+        delta_seconds = max((timestamp - previous_timestamp).total_seconds(), 1e-6)
+        horizontal_speed = round(
+            _distance_meters(
+                previous_position["latitude"],
+                previous_position["longitude"],
+                latitude,
+                longitude,
+            )
+            / delta_seconds,
+            1,
+        )
+        vertical_speed = round((altitude_m - float(previous_position["altitude"])) / delta_seconds, 1)
+        east_delta = float(phase["east_m"]) - float(previous_position.get("east_m", phase["east_m"]))
+    else:
+        horizontal_speed = round(float(phase.get("horizontal_speed", 0.0)), 1)
+        vertical_speed = round(float(phase.get("vertical_speed", 0.0)), 1)
+        east_delta = float(phase["east_m"])
+
+    if not bool(phase["is_flying"]):
+        horizontal_speed = 0.0
+        vertical_speed = 0.0
+
+    east_direction = 1 if east_delta >= 0 else -1
 
     payload = copy.deepcopy(base_payload)
     payload.update(
@@ -288,7 +429,7 @@ def _build_flight_payload(
                 "yaw": float(phase["heading"]),
             },
             "velocity": {
-                "x": round(horizontal_speed if float(phase["east_m"]) >= 0 else -horizontal_speed, 1),
+                "x": round(horizontal_speed * east_direction, 1),
                 "y": 0.0,
                 "z": vertical_speed,
                 "horizontal_speed": horizontal_speed,
@@ -980,7 +1121,7 @@ def _build_weather_step(
     payload = {
         "type": "psdk_data",
         "timestamp": _format_timestamp(timestamp),
-        "payload_index": "PORT_3",
+        "payload_index": PSDK_PORT,
         "data": f"{frame_body}{checksum}\r\n",
     }
     return ScenarioStep(name=name, payload=payload)
@@ -997,7 +1138,7 @@ def _build_visibility_step(
     payload = {
         "type": "psdk_data",
         "timestamp": _format_timestamp(timestamp),
-        "payload_index": "PORT_3",
+        "payload_index": PSDK_PORT,
         "data": f"VTF-{visibility_10s}-{visibility_1min}-{visibility_10min}-///-0001-000.0-{voltage}-1.25-04\r\n",
     }
     return ScenarioStep(name=name, payload=payload)

@@ -9,6 +9,7 @@ import math
 import random
 import time
 from datetime import datetime
+from typing import Optional
 
 from app.config import settings
 from app.services.telemetry_scenarios import (
@@ -24,6 +25,7 @@ async def simulate_random_telemetry(
     port: int,
     drone_id: str,
     interval: float,
+    seed: Optional[int],
 ) -> None:
     """Send a continuous random telemetry stream."""
     print(f"Connecting to TCP server {host}:{port} ...")
@@ -35,27 +37,51 @@ async def simulate_random_telemetry(
         print(f"Connection failed: {host}:{port} is not accepting connections.")
         return
 
-    base_lat = 31.2304
-    base_lng = 121.4737
+    rng = random.Random(seed)
+    base_lat = round(rng.uniform(27.0, 29.2), 7)
+    base_lng = round(rng.uniform(110.0, 113.7), 7)
     altitude = 0.0
     battery = 100.0
     step = 0
+    east_offset_m = 0.0
+    north_offset_m = 0.0
+    heading = rng.uniform(35.0, 145.0)
+    cruise_speed = rng.uniform(9.2, 10.8)
+    max_radius_m = rng.uniform(520.0, 860.0)
+    previous_altitude = altitude
 
     try:
         while True:
             step += 1
-            t = step * 0.05
-            radius = 0.002
-            lat = base_lat + radius * math.sin(t)
-            lng = base_lng + radius * math.cos(t)
+            t = step * interval
 
-            if step < 20:
-                altitude = min(altitude + 5.0, 100.0)
+            if step < 8:
+                altitude = min(altitude + 3.5, 24.0)
+                current_speed = max(1.5, cruise_speed * 0.35)
+            elif step < 18:
+                altitude = min(altitude + 2.4, 72.0)
+                current_speed = cruise_speed * 0.75
+            elif step % 90 > 68:
+                altitude = max(16.0, altitude - 1.8)
+                current_speed = max(4.0, cruise_speed * 0.65)
             else:
-                altitude = 100.0 + 20.0 * math.sin(t * 0.5)
+                altitude = max(22.0, min(118.0, 78.0 + 24.0 * math.sin(t * 0.09)))
+                current_speed = max(6.0, cruise_speed + math.sin(t * 0.21) * 1.8 + rng.uniform(-0.6, 0.6))
 
-            battery = max(0.0, 100.0 - step * 0.1 + random.uniform(-0.5, 0.5))
-            heading = (math.degrees(t) + 90.0) % 360.0
+            if math.hypot(east_offset_m, north_offset_m) >= max_radius_m:
+                heading = (heading + 165.0 + rng.uniform(-20.0, 20.0)) % 360.0
+            else:
+                heading = (heading + math.sin(t * 0.08) * 6.0 + rng.uniform(-2.5, 2.5)) % 360.0
+
+            east_offset_m += math.cos(math.radians(heading)) * current_speed * interval
+            north_offset_m += math.sin(math.radians(heading)) * current_speed * interval
+
+            lat = base_lat + north_offset_m / 111_320.0
+            lng = base_lng + east_offset_m / (111_320.0 * math.cos(math.radians(base_lat)))
+
+            battery = max(0.0, 100.0 - step * 0.12 + rng.uniform(-0.4, 0.3))
+            vertical_speed = round((altitude - previous_altitude) / max(interval, 1e-3), 1)
+            previous_altitude = altitude
 
             data = {
                 "droneId": drone_id,
@@ -63,18 +89,18 @@ async def simulate_random_telemetry(
                 "latitude": round(lat, 8),
                 "longitude": round(lng, 8),
                 "altitude": round(altitude, 1),
-                "horizontalSpeed": round(random.uniform(3.0, 12.0), 1),
-                "verticalSpeed": round(random.uniform(-1.0, 1.0), 1),
+                "horizontalSpeed": round(current_speed, 1),
+                "verticalSpeed": vertical_speed,
                 "heading": round(heading, 1),
                 "batteryPercent": int(battery),
                 "batteryVoltage": round(22.0 + battery * 0.03, 1),
-                "batteryTemperature": round(30.0 + random.uniform(0.0, 10.0), 1),
-                "gpsSignal": random.choice([4, 4, 5, 5, 5]),
-                "flightMode": "GPS",
+                "batteryTemperature": round(30.0 + rng.uniform(0.0, 9.0), 1),
+                "gpsSignal": rng.choice([4, 4, 5, 5, 5]),
+                "flightMode": "GPS" if current_speed >= 5.0 else "HOVER",
                 "isFlying": step > 5,
-                "homeDistance": round(radius * 111000 * abs(math.sin(t)), 1),
-                "gimbalPitch": round(-30.0 + random.uniform(-5.0, 5.0), 1),
-                "rcSignal": random.choice([90, 92, 95, 98, 100]),
+                "homeDistance": round(math.hypot(east_offset_m, north_offset_m), 1),
+                "gimbalPitch": round(-30.0 + rng.uniform(-5.0, 5.0), 1),
+                "rcSignal": rng.choice([88, 90, 92, 95, 98, 100]),
             }
 
             writer.write(json.dumps(data).encode("utf-8") + b"\n")
@@ -109,6 +135,7 @@ async def replay_scripted_scenario(
     loop_count: int,
     loop_forever: bool,
     dry_run: bool,
+    seed: Optional[int],
 ) -> None:
     """Replay a deterministic scripted telemetry scenario."""
     scenario_builders = {
@@ -117,7 +144,16 @@ async def replay_scripted_scenario(
         "m400_mixed": build_m400_mixed_stream_scenario,
         "m400_weather": build_m400_weather_device_scenario,
     }
-    steps = scenario_builders[scenario](cycle_seconds=duration_seconds)
+    builder = scenario_builders[scenario]
+
+    def build_steps():
+        return builder(
+            start_time=datetime.now().replace(microsecond=0),
+            cycle_seconds=duration_seconds,
+            seed=seed,
+        )
+
+    steps = build_steps()
     reference_steps = [step for step in steps if step.payload.get("type") != "psdk_data"] or steps
     average_interval = duration_seconds / max(1, len(reference_steps) - 1)
 
@@ -150,6 +186,7 @@ async def replay_scripted_scenario(
     try:
         loop_index = 0
         while loop_forever or loop_index < loop_count:
+            steps = build_steps()
             loop_label = f"{loop_index + 1}/inf" if loop_forever else str(loop_index + 1)
             for step_index, step in enumerate(steps, start=1):
                 payload = step.payload
@@ -195,6 +232,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--loop-count", type=int, default=1, help="Replay count for scripted scenarios")
     parser.add_argument("--loop-forever", action="store_true", help="Replay scripted scenario continuously")
     parser.add_argument("--dry-run", action="store_true", help="Print scripted scenario without connecting")
+    parser.add_argument("--seed", type=int, default=None, help="Optional random seed for reproducible scenarios")
     return parser.parse_args()
 
 
@@ -213,6 +251,7 @@ async def _main(args: argparse.Namespace) -> None:
             loop_count=max(1, args.loop_count),
             loop_forever=bool(args.loop_forever),
             dry_run=bool(args.dry_run),
+            seed=args.seed,
         )
         return
 
@@ -225,6 +264,7 @@ async def _main(args: argparse.Namespace) -> None:
         port=args.port,
         drone_id=args.drone_id,
         interval=interval,
+        seed=args.seed,
     )
 
 

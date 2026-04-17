@@ -27,6 +27,7 @@ from app.tcp_server.parser import TcpDataParser
 
 
 SCHEMA_PATH = Path(__file__).resolve().parent / "test_data" / "flight_data_schema_v2.json"
+SCENARIO_SEED = 20260417
 
 
 def _load_schema() -> dict:
@@ -53,9 +54,20 @@ def _feed_in_chunks(parser: TcpDataParser, payload: bytes, chunk_sizes: list[int
 
 
 class TestM400MissionScenario:
+    def test_default_scenario_timestamps_follow_current_time(self):
+        now = datetime.now()
+        mission_steps = build_m400_mission_scenario(seed=SCENARIO_SEED)
+        weather_steps = build_m400_weather_device_scenario(seed=SCENARIO_SEED)
+
+        mission_start = datetime.strptime(mission_steps[0].payload["timestamp"], "%Y-%m-%d %H:%M:%S.%f")
+        weather_start = datetime.strptime(weather_steps[0].payload["timestamp"], "%Y-%m-%d %H:%M:%S.%f")
+
+        assert abs((mission_start - now).total_seconds()) <= 5
+        assert abs((weather_start - now).total_seconds()) <= 5
+
     def test_scenario_cycle_duration_is_configurable(self):
-        short_steps = build_m400_mission_scenario(cycle_seconds=30)
-        long_steps = build_m400_mission_scenario(cycle_seconds=60)
+        short_steps = build_m400_mission_scenario(cycle_seconds=30, seed=SCENARIO_SEED)
+        long_steps = build_m400_mission_scenario(cycle_seconds=60, seed=SCENARIO_SEED)
 
         short_duration = self._duration_seconds(short_steps)
         long_duration = self._duration_seconds(long_steps)
@@ -68,13 +80,19 @@ class TestM400MissionScenario:
         assert len(long_steps) == 61
         assert all(delta == pytest.approx(1.0, abs=0.001) for delta in short_deltas)
         assert all(delta == pytest.approx(1.0, abs=0.001) for delta in long_deltas)
+        assert self._average_horizontal_speed(short_steps) == pytest.approx(10.0, abs=2.5)
+        assert self._average_horizontal_speed(long_steps) == pytest.approx(10.0, abs=2.5)
 
     def test_generated_m400_scenario_matches_schema_enums(self):
         schema = _load_schema()
         enum_sets = schema["enum_sets"]
-        steps = build_m400_mission_scenario()
+        steps = build_m400_mission_scenario(seed=SCENARIO_SEED)
 
         assert len(steps) >= 10
+        assert steps[0].name == "preflight_ready"
+        assert steps[0].payload["is_flying"] is False
+        assert steps[-1].name == "landed_shutdown"
+        assert steps[-1].payload["is_flying"] is False
 
         timestamps = []
         for step in steps:
@@ -91,12 +109,14 @@ class TestM400MissionScenario:
             assert payload["battery_threshold_behavior"] in enum_sets["BatteryThresholdBehavior"]
             assert payload["failsafe_action"] in enum_sets["FailsafeAction"]
             assert payload["auto_rth_reason"] in enum_sets["FCAutoRTHReason"]
+            assert 24.0 <= payload["location"]["latitude"] <= 30.5
+            assert 108.5 <= payload["location"]["longitude"] <= 114.5
 
         assert timestamps == sorted(timestamps)
 
     def test_parser_handles_full_m400_mission_sequence(self):
         parser = TcpDataParser()
-        steps = build_m400_mission_scenario()
+        steps = build_m400_mission_scenario(seed=SCENARIO_SEED)
         results = parser.feed(_serialize_steps(steps))
 
         assert len(results) == len(steps)
@@ -127,18 +147,18 @@ class TestM400MissionScenario:
 
     def test_parser_handles_chunked_m400_stream(self):
         parser = TcpDataParser()
-        steps = build_m400_mission_scenario()
+        steps = build_m400_mission_scenario(seed=SCENARIO_SEED)
         payload = _serialize_steps(steps)
         results = _feed_in_chunks(parser, payload, [7, 13, 29, 5, 41])
 
         assert len(results) == len(steps)
         assert results[-1].battery.percent == 12
         assert results[-1].is_flying is False
-        assert max(item.velocity.horizontal for item in results) >= 14.0
+        assert max(item.velocity.horizontal for item in results) >= 9.0
 
     def test_low_battery_phase_preserves_rth_metadata_in_raw_payload(self):
         parser = TcpDataParser()
-        steps = build_m400_mission_scenario()
+        steps = build_m400_mission_scenario(seed=SCENARIO_SEED)
         results = parser.feed(_serialize_steps(steps))
         names_to_states = {step.name: state for step, state in zip(steps, results)}
         low_battery_state = names_to_states["low_battery_warning"]
@@ -153,13 +173,16 @@ class TestM400MissionScenario:
 
     def test_fault_scenario_covers_gps_rc_and_battery_risks(self):
         parser = TcpDataParser()
-        steps = build_m400_fault_scenario(cycle_seconds=30)
+        steps = build_m400_fault_scenario(cycle_seconds=30, seed=SCENARIO_SEED)
         results = parser.feed(_serialize_steps(steps))
         names_to_states = {step.name: state for step, state in zip(steps, results)}
 
+        assert steps[0].name == "preflight_ready"
+        assert steps[-1].name == "landed_shutdown"
+
         assert names_to_states["gps_signal_degraded"].gps_signal == 1
         assert names_to_states["gps_signal_degraded"].flight_mode == "ATTI"
-        assert names_to_states["rc_link_degraded"].rc_signal == 24
+        assert names_to_states["rc_link_degraded"].rc_signal <= 30
         assert names_to_states["battery_anomaly_detected"].flight_mode == "BATTERY_DIAGNOSIS_PROTECT"
         assert (
             names_to_states["battery_anomaly_detected"].raw_payload["battery_status"]["cell_damaged"] is True
@@ -176,13 +199,13 @@ class TestM400MissionScenario:
 
     def test_parser_handles_mixed_flight_and_psdk_stream(self):
         parser = TcpDataParser()
-        steps = build_m400_mixed_stream_scenario(cycle_seconds=30)
+        steps = build_m400_mixed_stream_scenario(cycle_seconds=30, seed=SCENARIO_SEED)
         results = parser.feed(_serialize_steps(steps))
 
         flight_messages = [message for message in results if isinstance(message, DroneState)]
         psdk_messages = [message for message in results if isinstance(message, PsdkDataMessage)]
 
-        assert len(flight_messages) == len(build_m400_fault_scenario(cycle_seconds=30))
+        assert len(flight_messages) == len(build_m400_fault_scenario(cycle_seconds=30, seed=SCENARIO_SEED))
         assert len(psdk_messages) >= 4
         assert {message.device_type for message in psdk_messages} == {"weather", "visibility"}
         assert all(message.payload_index == "PORT_3" for message in psdk_messages)
@@ -190,7 +213,7 @@ class TestM400MissionScenario:
         assert flight_messages[-1].position.altitude == pytest.approx(0.0)
 
     def test_weather_device_scenario_runs_for_configured_duration(self):
-        steps = build_m400_weather_device_scenario(cycle_seconds=30)
+        steps = build_m400_weather_device_scenario(cycle_seconds=30, seed=SCENARIO_SEED)
 
         assert self._duration_seconds(steps) == pytest.approx(30.0, abs=0.05)
         assert len(steps) == 61
@@ -200,7 +223,7 @@ class TestM400MissionScenario:
 
     def test_parser_handles_weather_device_only_stream(self):
         parser = TcpDataParser()
-        steps = build_m400_weather_device_scenario(cycle_seconds=30)
+        steps = build_m400_weather_device_scenario(cycle_seconds=30, seed=SCENARIO_SEED)
         results = parser.feed(_serialize_steps(steps))
 
         assert len(results) == len(steps)
@@ -212,10 +235,12 @@ class TestM400MissionScenario:
         assert len(weather_messages) == 31
         assert len(visibility_messages) == 30
         assert all(message.payload_index == "PORT_3" for message in results)
-        assert weather_messages[0].parsed_data["relative_wind_direction_deg"] == pytest.approx(56.0)
+        assert 0.0 <= weather_messages[0].parsed_data["relative_wind_direction_deg"] <= 359.0
         assert weather_messages[-1].parsed_data["lrc_valid"] is True
-        assert visibility_messages[0].parsed_data["visibility_10s_m"] == 1820
-        assert visibility_messages[-1].parsed_data["power_voltage_v"] == pytest.approx(11.10, abs=0.01)
+        assert visibility_messages[0].parsed_data["visibility_10s_m"] >= 600
+        assert 10.5 <= visibility_messages[-1].parsed_data["power_voltage_v"] <= 12.5
+        assert weather_messages[0].parsed_data["temperature_c"] != weather_messages[-1].parsed_data["temperature_c"]
+        assert visibility_messages[0].parsed_data["visibility_10s_m"] != visibility_messages[-1].parsed_data["visibility_10s_m"]
 
     @staticmethod
     def _duration_seconds(steps) -> float:
@@ -230,6 +255,13 @@ class TestM400MissionScenario:
             (timestamps[index + 1] - timestamps[index]).total_seconds()
             for index in range(len(timestamps) - 1)
         ]
+
+    @staticmethod
+    def _average_horizontal_speed(steps) -> float:
+        flight_steps = [step.payload for step in steps if step.payload.get("is_flying")]
+        if not flight_steps:
+          return 0.0
+        return sum(float(step.get("horizontal_speed", 0.0)) for step in flight_steps) / len(flight_steps)
 
 
 if __name__ == "__main__":
