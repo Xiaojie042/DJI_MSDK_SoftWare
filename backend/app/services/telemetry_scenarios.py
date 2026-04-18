@@ -122,36 +122,39 @@ def build_m400_mixed_stream_scenario(
     Build a mixed stream that interleaves flight telemetry with PSDK weather
     and visibility payloads.
     """
-    flight_steps = build_m400_fault_scenario(start_time=start_time, cycle_seconds=cycle_seconds, seed=seed)
-    rng = _create_rng(_derive_seed(seed, 101))
+    stream_start = start_time or datetime.now().replace(microsecond=0)
+    flight_steps = build_m400_fault_scenario(start_time=stream_start, cycle_seconds=cycle_seconds, seed=seed)
+    weather_steps = [
+        step
+        for step in build_m400_weather_device_scenario(
+            start_time=stream_start,
+            cycle_seconds=cycle_seconds,
+            seed=_derive_seed(seed, 101),
+        )
+        if step.name.startswith("weather_device_")
+    ]
+    rng = _create_rng(_derive_seed(seed, 202))
     mixed_steps: list[ScenarioStep] = []
 
-    for step in flight_steps:
+    for step_index, step in enumerate(flight_steps):
         mixed_steps.append(step)
 
-        timestamp = datetime.strptime(step.payload["timestamp"], "%Y-%m-%d %H:%M:%S.%f")
+        timestamp = _parse_scenario_timestamp(step.payload["timestamp"])
+        if step_index < len(weather_steps):
+            mixed_steps.append(
+                _copy_step_with_timestamp(
+                    weather_steps[step_index],
+                    name=f"weather_stream_{step_index:02d}",
+                    timestamp=timestamp + timedelta(milliseconds=150),
+                )
+            )
+
         if step.name == "cruise_outbound":
             mixed_steps.extend(
                 [
-                    _build_weather_step("weather_snapshot_cruise", timestamp + timedelta(milliseconds=150)),
                     _build_visibility_step("visibility_snapshot_cruise", timestamp + timedelta(milliseconds=300)),
                 ]
             )
-        elif step.name == "gps_signal_degraded":
-            mixed_steps.append(
-                    _build_weather_step(
-                        "weather_snapshot_gps_degraded",
-                        timestamp + timedelta(milliseconds=150),
-                        relative_wind_direction=str(_clamp_int(72 + rng.uniform(-12.0, 14.0), 0, 359)),
-                        relative_wind_speed=f"{max(1.6, 4.8 + rng.uniform(-0.6, 0.9)):.2f}",
-                        temperature=f"{27.4 + rng.uniform(-1.0, 1.1):.1f}",
-                        humidity=f"{58.3 + rng.uniform(-4.0, 4.5):.1f}",
-                        pressure=f"{931.5 + rng.uniform(-3.0, 2.0):.1f}",
-                        compass_heading=str(_clamp_int(18 + rng.uniform(-10.0, 12.0), 0, 359)),
-                        true_wind_direction=f"{74.2 + rng.uniform(-8.0, 8.0):.1f}",
-                        true_wind_speed=f"{max(2.2, 5.36 + rng.uniform(-0.7, 0.9)):.2f}",
-                    )
-                )
         elif step.name == "battery_anomaly_detected":
             mixed_steps.append(
                 _build_visibility_step(
@@ -1142,6 +1145,16 @@ def _build_visibility_step(
         "data": f"VTF-{visibility_10s}-{visibility_1min}-{visibility_10min}-///-0001-000.0-{voltage}-1.25-04\r\n",
     }
     return ScenarioStep(name=name, payload=payload)
+
+
+def _copy_step_with_timestamp(step: ScenarioStep, name: str, timestamp: datetime) -> ScenarioStep:
+    payload = copy.deepcopy(step.payload)
+    payload["timestamp"] = _format_timestamp(timestamp)
+    return ScenarioStep(name=name, payload=payload)
+
+
+def _parse_scenario_timestamp(value: str) -> datetime:
+    return datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f")
 
 
 def _build_base_payload(home_lat: float, home_lng: float) -> dict[str, Any]:

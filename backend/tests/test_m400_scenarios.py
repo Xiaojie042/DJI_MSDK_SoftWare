@@ -204,13 +204,30 @@ class TestM400MissionScenario:
 
         flight_messages = [message for message in results if isinstance(message, DroneState)]
         psdk_messages = [message for message in results if isinstance(message, PsdkDataMessage)]
+        weather_messages = [message for message in psdk_messages if message.device_type == "weather"]
+        visibility_messages = [message for message in psdk_messages if message.device_type == "visibility"]
 
         assert len(flight_messages) == len(build_m400_fault_scenario(cycle_seconds=30, seed=SCENARIO_SEED))
-        assert len(psdk_messages) >= 4
+        assert len(weather_messages) == len(flight_messages)
+        assert len(visibility_messages) >= 2
         assert {message.device_type for message in psdk_messages} == {"weather", "visibility"}
         assert all(message.payload_index == "PORT_3" for message in psdk_messages)
         assert flight_messages[-1].is_flying is False
         assert flight_messages[-1].position.altitude == pytest.approx(0.0)
+
+    def test_mixed_scenario_emits_weather_every_second(self):
+        flight_steps = build_m400_fault_scenario(cycle_seconds=30, seed=SCENARIO_SEED)
+        mixed_steps = build_m400_mixed_stream_scenario(cycle_seconds=30, seed=SCENARIO_SEED)
+        weather_steps = [step for step in mixed_steps if step.name.startswith("weather_stream_")]
+
+        assert len(weather_steps) == len(flight_steps)
+
+        for flight_step, weather_step in zip(flight_steps, weather_steps):
+            flight_timestamp = datetime.strptime(flight_step.payload["timestamp"], "%Y-%m-%d %H:%M:%S.%f")
+            weather_timestamp = datetime.strptime(weather_step.payload["timestamp"], "%Y-%m-%d %H:%M:%S.%f")
+
+            assert weather_timestamp > flight_timestamp
+            assert (weather_timestamp - flight_timestamp).total_seconds() == pytest.approx(0.15, abs=0.01)
 
     def test_weather_device_scenario_runs_for_configured_duration(self):
         steps = build_m400_weather_device_scenario(cycle_seconds=30, seed=SCENARIO_SEED)
