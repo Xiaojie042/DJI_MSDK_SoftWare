@@ -5,9 +5,18 @@ import { LCircleMarker, LMap, LMarker, LPolyline, LPopup, LTileLayer } from '@vu
 import L from 'leaflet'
 
 const DEGREE_SYMBOL = '\u00B0'
+const LIVE_TRACK_RENDER_LIMIT = 900
+const LIVE_TRACK_POINT_RENDER_LIMIT = 180
+const HISTORY_TRACK_RENDER_LIMIT = 1200
 
 const store = useDroneStore()
 const zoom = ref(16)
+const tileLayerOptions = {
+  subdomains: ['1', '2', '3', '4'],
+  keepBuffer: 8,
+  updateWhenIdle: true,
+  updateWhenZooming: false
+}
 
 const popupOptions = {
   autoClose: false,
@@ -42,8 +51,26 @@ const mapCenter = computed(() =>
 )
 
 const trackPoints = computed(() => store.flightTrack)
-const pathCoords = computed(() => trackPoints.value.map((point) => [point.lat, point.lng]))
-const highlightedTrail = computed(() => trackPoints.value.slice(-24).map((point) => [point.lat, point.lng]))
+const sampleTrackPoints = (points, maxPoints) => {
+  if (!Array.isArray(points) || points.length <= maxPoints) {
+    return points || []
+  }
+
+  const step = Math.ceil(points.length / maxPoints)
+  const sampled = points.filter((_, index) => index === 0 || index === points.length - 1 || index % step === 0)
+
+  if (sampled[sampled.length - 1] !== points[points.length - 1]) {
+    sampled.push(points[points.length - 1])
+  }
+
+  return sampled
+}
+
+const sampledTrackPoints = computed(() => sampleTrackPoints(trackPoints.value, LIVE_TRACK_RENDER_LIMIT))
+const liveTrackMarkerPoints = computed(() =>
+  sampleTrackPoints(trackPoints.value, LIVE_TRACK_POINT_RENDER_LIMIT).slice(0, -1)
+)
+const pathCoords = computed(() => sampledTrackPoints.value.map((point) => [point.lat, point.lng]))
 const takeoffPoint = computed(() => {
   const firstPoint = trackPoints.value[0]
   return firstPoint ? [firstPoint.lat, firstPoint.lng] : null
@@ -66,13 +93,14 @@ const getHistoricalTrackColor = (flightId) => {
 const historicalTracks = computed(() => {
   return store.historicalTracks.map((track) => ({
     ...track,
-    latLngs: track.points.map((point) => [point.lat, point.lng]),
+    latLngs: sampleTrackPoints(track.points, HISTORY_TRACK_RENDER_LIMIT).map((point) => [point.lat, point.lng]),
     options: {
       color: getHistoricalTrackColor(track.flight_id),
       weight: 4,
       opacity: 0.72,
       dashArray: '12 10',
-      lineCap: 'round'
+      lineCap: 'round',
+      smoothFactor: 1.3
     }
   }))
 })
@@ -297,15 +325,17 @@ const droneIcon = computed(() => {
     popupAnchor: [0, -24]
   })
 })
+
 </script>
 
 <template>
   <div class="map-shell">
     <l-map v-model:zoom="zoom" :center="mapCenter" :useGlobalLeaflet="false" :zoom-control="false">
       <l-tile-layer
-        url="http://webrd01.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}"
+        url="https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}"
         layer-type="base"
         name="GaodeMap"
+        :options="tileLayerOptions"
         attribution="&copy; 高德地图"
       />
 
@@ -327,16 +357,22 @@ const droneIcon = computed(() => {
       <l-polyline
         v-if="pathCoords.length > 1"
         :lat-lngs="pathCoords"
-        color="#22d3ee"
-        :weight="7"
-        :opacity="0.3"
+        color="#38bdf8"
+        :weight="4"
+        :opacity="0.78"
+        :smooth-factor="1.2"
       />
-      <l-polyline
-        v-if="highlightedTrail.length > 1"
-        :lat-lngs="highlightedTrail"
-        color="#3b82f6"
-        :weight="5"
-        :opacity="0.9"
+
+      <l-circle-marker
+        v-for="trackPoint in liveTrackMarkerPoints"
+        :key="`live-track-${trackPoint.timestamp}-${trackPoint.lat}-${trackPoint.lng}`"
+        :lat-lng="[trackPoint.lat, trackPoint.lng]"
+        :radius="3"
+        color="#e0f2fe"
+        fill-color="#38bdf8"
+        :fill-opacity="0.92"
+        :opacity="0.95"
+        :weight="1"
       />
 
       <l-circle-marker
@@ -556,7 +592,8 @@ const droneIcon = computed(() => {
 }
 
 .drone-popup-header {
-  padding: 1rem;
+  min-height: 108px;
+  padding: 1rem 1rem 1.1rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -755,6 +792,7 @@ const droneIcon = computed(() => {
 
   .drone-popup-header {
     flex-direction: column;
+    min-height: auto;
     padding-top: 1.5rem;
   }
 

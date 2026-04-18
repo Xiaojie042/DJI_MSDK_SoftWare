@@ -54,7 +54,7 @@ export function useWebSocket() {
   const hydrateFromBackend = async () => {
     try {
       const [historyPayload, rawPayload] = await Promise.all([
-        fetchJsonWithTimeout('/api/history?limit=300'),
+        fetchJsonWithTimeout('/api/history?limit=300&latest_session_only=true'),
         fetchJsonWithTimeout('/api/history/raw?limit=50')
       ])
 

@@ -331,17 +331,61 @@ const buildRawStreamFrame = (payload, fallbackTimestamp = null) => {
   }
 }
 
+const isGroundReadyState = (state) => {
+  if (!state) {
+    return false
+  }
+
+  const altitude = toFiniteNumber(state.position?.altitude, 0)
+  const flightMode = String(state.flight_mode || '').trim().toUpperCase()
+  return !toBoolean(state.is_flying, false) && altitude <= 2 && flightMode === 'TAKE_OFF_READY'
+}
+
+const hasScenarioTimestampReset = (previousState, nextState) => {
+  const previousTimestamp = parseTimestampToSeconds(previousState?.timestamp, 0)
+  const nextTimestamp = parseTimestampToSeconds(nextState?.timestamp, 0)
+
+  return previousTimestamp > 0 && nextTimestamp > 0 && nextTimestamp + 1 < previousTimestamp
+}
+
+const hasGroundBoundaryShift = (previousState, nextState) => {
+  if (!hasValidPosition(previousState?.position) || !hasValidPosition(nextState?.position)) {
+    return false
+  }
+
+  const distanceMeters = haversineDistanceMeters(
+    {
+      lat: previousState.position.latitude,
+      lng: previousState.position.longitude
+    },
+    {
+      lat: nextState.position.latitude,
+      lng: nextState.position.longitude
+    }
+  )
+
+  return distanceMeters >= 12
+}
+
 const shouldResetTrackForNewFlight = (previousState, nextState) => {
   if (!previousState || !nextState) {
     return false
   }
 
   const previousAltitude = toFiniteNumber(previousState.position?.altitude, 0)
-
-  return (
+  const takeoffTransition =
     !toBoolean(previousState.is_flying, false) &&
     toBoolean(nextState.is_flying, false) &&
     previousAltitude <= 2
+
+  const groundReadyBoundary =
+    isGroundReadyState(previousState) &&
+    isGroundReadyState(nextState) &&
+    (hasScenarioTimestampReset(previousState, nextState) || hasGroundBoundaryShift(previousState, nextState))
+
+  return (
+    takeoffTransition ||
+    groundReadyBoundary
   )
 }
 
