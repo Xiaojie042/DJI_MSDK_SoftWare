@@ -141,5 +141,49 @@ def test_flight_session_storage_lifecycle():
     asyncio.run(scenario())
 
 
+def test_get_flight_history_can_limit_to_latest_session():
+    async def scenario() -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            db_path = base / "flight_sessions.db"
+            raw_history_path = base / "telemetry_raw.jsonl"
+            flight_sessions_path = base / "flights"
+
+            storage = StorageService(
+                database_url=f"sqlite+aiosqlite:///{db_path.as_posix()}",
+                raw_history_path=str(raw_history_path),
+                flight_sessions_path=str(flight_sessions_path),
+            )
+            await storage.init_db()
+
+            try:
+                await storage.save_telemetry(_make_state(1713252600.0, 31.23040, 121.47370, 12.0, True, 78))
+                await storage.save_telemetry(_make_state(1713252601.0, 31.23090, 121.47430, 32.0, True, 72))
+                await storage.save_telemetry(_make_state(1713252602.0, 31.23110, 121.47460, 4.0, False, 69))
+
+                await storage.save_telemetry(_make_state(1713252620.0, 31.24040, 121.48370, 10.0, True, 77))
+                await storage.save_telemetry(_make_state(1713252621.0, 31.24090, 121.48430, 24.0, True, 71))
+                await storage.save_telemetry(_make_state(1713252622.0, 31.24110, 121.48460, 3.0, False, 68))
+
+                all_records = await storage.get_flight_history(drone_id="M400-001", limit=10)
+                latest_records = await storage.get_flight_history(
+                    drone_id="M400-001",
+                    limit=10,
+                    latest_session_only=True,
+                )
+
+                assert len(all_records) == 6
+                assert len(latest_records) == 3
+                assert sorted(record["timestamp"] for record in latest_records) == [
+                    pytest.approx(1713252620.0),
+                    pytest.approx(1713252621.0),
+                    pytest.approx(1713252622.0),
+                ]
+            finally:
+                await storage.close()
+
+    asyncio.run(scenario())
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([str(Path(__file__).resolve())]))

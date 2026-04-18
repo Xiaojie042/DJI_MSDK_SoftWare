@@ -76,9 +76,17 @@ async def system_status() -> SystemStatusResponse:
 async def get_flight_history(
     drone_id: Optional[str] = Query(default=None, description="Drone ID"),
     limit: int = Query(default=1000, ge=1, le=10000, description="Max records"),
+    latest_session_only: bool = Query(
+        default=False,
+        description="Limit records to the latest detected flight session",
+    ),
 ) -> FlightHistoryResponse:
     storage = get_storage()
-    records = await storage.get_flight_history(drone_id=drone_id, limit=limit)
+    records = await storage.get_flight_history(
+        drone_id=drone_id,
+        limit=limit,
+        latest_session_only=latest_session_only,
+    )
     return FlightHistoryResponse(
         total=len(records),
         records=[FlightRecordResponse(**record) for record in records],

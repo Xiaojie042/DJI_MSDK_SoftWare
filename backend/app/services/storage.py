@@ -543,19 +543,30 @@ class StorageService:
         self,
         drone_id: Optional[str] = None,
         limit: int = 1000,
+        latest_session_only: bool = False,
     ) -> list[dict[str, Any]]:
         """Fetch latest normalized telemetry history from SQLite."""
+        session_window: tuple[Optional[float], Optional[float]] = (None, None)
+
         async with self._session_factory() as session:
             target_drone_id = drone_id or await self._get_latest_drone_id(session)
             if not target_drone_id:
                 return []
 
-            stmt = (
-                select(FlightRecord)
-                .where(FlightRecord.drone_id == target_drone_id)
-                .order_by(FlightRecord.id.desc())
-                .limit(limit)
-            )
+            if latest_session_only:
+                session_window = await asyncio.to_thread(
+                    self._get_latest_session_window_sync,
+                    target_drone_id,
+                )
+
+            stmt = select(FlightRecord).where(FlightRecord.drone_id == target_drone_id)
+            start_time, end_time = session_window
+            if start_time is not None:
+                stmt = stmt.where(FlightRecord.timestamp >= start_time)
+            if end_time is not None:
+                stmt = stmt.where(FlightRecord.timestamp <= end_time)
+
+            stmt = stmt.order_by(FlightRecord.id.desc()).limit(limit)
             result = await session.execute(stmt)
             records = result.scalars().all()
 
@@ -587,6 +598,18 @@ class StorageService:
         stmt = select(FlightRecord.drone_id).order_by(FlightRecord.id.desc()).limit(1)
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
+
+    def _get_latest_session_window_sync(self, drone_id: str) -> tuple[Optional[float], Optional[float]]:
+        for session_data in self._list_flight_sessions_sync(limit=500):
+            if session_data.get("drone_id") != drone_id:
+                continue
+
+            start_time = self._coerce_timestamp(session_data.get("takeoff_time"))
+            end_time = self._coerce_timestamp(session_data.get("landing_time"))
+            if start_time is not None:
+                return start_time, end_time
+
+        return None, None
 
     async def get_raw_history(self, limit: int = 200) -> list[dict[str, Any]]:
         """Fetch recent raw telemetry snapshots from local JSONL file."""
