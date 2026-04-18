@@ -5,16 +5,10 @@ import { useDroneStore } from '@/stores/droneStore'
 const store = useDroneStore()
 const INVALID_MARKER = '///'
 
-const findLatestFrame = (matcher) => {
-  for (let index = store.rawStream.length - 1; index >= 0; index -= 1) {
-    const candidate = store.rawStream[index]?.data
-    if (candidate && typeof candidate === 'object' && matcher(candidate)) {
-      return candidate
-    }
-  }
-
-  return null
-}
+const displayDroneState = computed(() => store.currentDroneState)
+const latestWeatherFrame = computed(() => store.currentWeatherFrame)
+const latestVisibilityFrame = computed(() => store.currentVisibilityFrame)
+const latestFlightFrame = computed(() => store.currentFlightPayload)
 
 const readPath = (source, path) => {
   if (!source || typeof source !== 'object') {
@@ -53,12 +47,6 @@ const formatMetric = (value, digits = 1, unit = '') => {
   return `${value.toFixed(digits)}${unit}`
 }
 
-const latestWeatherFrame = computed(() => findLatestFrame((item) => item.type === 'psdk_data' && item.device_type === 'weather'))
-const latestVisibilityFrame = computed(() =>
-  findLatestFrame((item) => item.type === 'psdk_data' && item.device_type === 'visibility')
-)
-const latestFlightFrame = computed(() => findLatestFrame((item) => item.type !== 'psdk_data'))
-
 const weatherPayload = computed(() => latestWeatherFrame.value?.parsed_data || {})
 const visibilityPayload = computed(() => latestVisibilityFrame.value?.parsed_data || {})
 
@@ -84,7 +72,7 @@ const weather = computed(() => {
     readPath(latestFlightFrame.value, 'aircraft_status.aircraft_location.altitude'),
     readPath(latestFlightFrame.value, 'position.altitude'),
     latestFlightFrame.value?.altitude,
-    store.droneState?.position?.altitude
+    displayDroneState.value?.position?.altitude
   )
 
   return {

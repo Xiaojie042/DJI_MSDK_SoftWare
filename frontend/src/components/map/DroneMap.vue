@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useDroneStore } from '@/stores/droneStore'
+import FlightReplayDock from '@/components/map/FlightReplayDock.vue'
 import { LCircleMarker, LMap, LMarker, LPolyline, LPopup, LTileLayer } from '@vue-leaflet/vue-leaflet'
 import L from 'leaflet'
 
@@ -44,10 +45,25 @@ const hasLivePosition = computed(() =>
   (store.droneState.position.latitude !== 0 || store.droneState.position.longitude !== 0)
 )
 
+const replayFrame = computed(() => store.activeFlightReplayFrame)
+const replayPosition = computed(() => {
+  const frame = replayFrame.value
+  if (
+    Number.isFinite(frame?.position?.latitude) &&
+    Number.isFinite(frame?.position?.longitude) &&
+    (frame.position.latitude !== 0 || frame.position.longitude !== 0)
+  ) {
+    return [frame.position.latitude, frame.position.longitude]
+  }
+
+  return null
+})
+
 const mapCenter = computed(() =>
-  hasLivePosition.value
+  replayPosition.value ||
+  (hasLivePosition.value
     ? [store.droneState.position.latitude, store.droneState.position.longitude]
-    : [31.2304, 121.4737]
+    : [31.2304, 121.4737])
 )
 
 const trackPoints = computed(() => store.flightTrack)
@@ -70,8 +86,19 @@ const sampledTrackPoints = computed(() => sampleTrackPoints(trackPoints.value, L
 const liveTrackMarkerPoints = computed(() =>
   sampleTrackPoints(trackPoints.value, LIVE_TRACK_POINT_RENDER_LIMIT).slice(0, -1)
 )
+const isReplayActive = computed(() => Boolean(store.flightReplay.activeFlightId && store.activeFlightReplayFrames.length))
 const pathCoords = computed(() => sampledTrackPoints.value.map((point) => [point.lat, point.lng]))
+const replayTrackCoords = computed(() =>
+  sampleTrackPoints(store.activeFlightReplayTrack, LIVE_TRACK_RENDER_LIMIT).map((point) => [point.lat, point.lng])
+)
+const replayTrackMarkerPoints = computed(() =>
+  sampleTrackPoints(store.activeFlightReplayTrack, LIVE_TRACK_POINT_RENDER_LIMIT).slice(0, -1)
+)
 const takeoffPoint = computed(() => {
+  if (isReplayActive.value) {
+    return null
+  }
+
   const firstPoint = trackPoints.value[0]
   return firstPoint ? [firstPoint.lat, firstPoint.lng] : null
 })
@@ -91,7 +118,9 @@ const getHistoricalTrackColor = (flightId) => {
 }
 
 const historicalTracks = computed(() => {
-  return store.historicalTracks.map((track) => ({
+  return store.historicalTracks
+    .filter((track) => !isReplayActive.value || track.flight_id !== store.flightReplay.activeFlightId)
+    .map((track) => ({
     ...track,
     latLngs: sampleTrackPoints(track.points, HISTORY_TRACK_RENDER_LIMIT).map((point) => [point.lat, point.lng]),
     options: {
@@ -105,7 +134,11 @@ const historicalTracks = computed(() => {
   }))
 })
 const dronePosition = computed(() =>
-  hasLivePosition.value ? [store.droneState.position.latitude, store.droneState.position.longitude] : null
+  isReplayActive.value
+    ? null
+    : hasLivePosition.value
+      ? [store.droneState.position.latitude, store.droneState.position.longitude]
+      : null
 )
 
 const hasValue = (value) => value !== undefined && value !== null && value !== ''
@@ -355,7 +388,7 @@ const droneIcon = computed(() => {
       </l-polyline>
 
       <l-polyline
-        v-if="pathCoords.length > 1"
+        v-if="!isReplayActive && pathCoords.length > 1"
         :lat-lngs="pathCoords"
         color="#38bdf8"
         :weight="4"
@@ -366,6 +399,7 @@ const droneIcon = computed(() => {
       <l-circle-marker
         v-for="trackPoint in liveTrackMarkerPoints"
         :key="`live-track-${trackPoint.timestamp}-${trackPoint.lat}-${trackPoint.lng}`"
+        v-show="!isReplayActive"
         :lat-lng="[trackPoint.lat, trackPoint.lng]"
         :radius="3"
         color="#e0f2fe"
@@ -383,6 +417,47 @@ const droneIcon = computed(() => {
         fill-color="#86efac"
         :fill-opacity="0.9"
       />
+
+      <l-polyline
+        v-if="replayTrackCoords.length > 1"
+        :lat-lngs="replayTrackCoords"
+        color="#f59e0b"
+        :weight="5"
+        :opacity="0.9"
+        :smooth-factor="1.2"
+      />
+
+      <l-circle-marker
+        v-for="trackPoint in replayTrackMarkerPoints"
+        :key="`replay-track-${trackPoint.timestamp}-${trackPoint.lat}-${trackPoint.lng}`"
+        :lat-lng="[trackPoint.lat, trackPoint.lng]"
+        :radius="3"
+        color="#fef3c7"
+        fill-color="#f59e0b"
+        :fill-opacity="0.9"
+        :opacity="0.95"
+        :weight="1"
+      />
+
+      <l-circle-marker
+        v-if="replayPosition"
+        :lat-lng="replayPosition"
+        :radius="9"
+        color="#fef3c7"
+        fill-color="#f59e0b"
+        :fill-opacity="0.95"
+        :opacity="1"
+        :weight="2"
+      >
+        <l-popup :options="historyTrackPopupOptions">
+          <article class="history-track-popup-card history-track-popup-card--replay">
+            <strong>{{ store.flightSessionDetails[store.flightReplay.activeFlightId]?.file_name || '回放架次' }}</strong>
+            <span>时间 {{ replayFrame?.timeLabel || '--' }}</span>
+            <span>高度 {{ formatAltitude(replayFrame?.position?.altitude) }}</span>
+            <span>速度 {{ formatSpeed(replayFrame?.velocity?.horizontal) }}</span>
+          </article>
+        </l-popup>
+      </l-circle-marker>
 
       <l-marker v-if="dronePosition" :lat-lng="dronePosition" :icon="droneIcon">
         <l-popup :options="popupOptions">
@@ -441,11 +516,14 @@ const droneIcon = computed(() => {
         </l-popup>
       </l-marker>
     </l-map>
+
+    <FlightReplayDock />
   </div>
 </template>
 
 <style>
 .map-shell {
+  position: relative;
   width: 100%;
   height: 100%;
 }
@@ -560,6 +638,10 @@ const droneIcon = computed(() => {
   color: #94a3b8;
   font-size: 0.7rem;
   line-height: 1.2;
+}
+
+.history-track-popup-card--replay {
+  width: 220px;
 }
 
 .leaflet-popup.drone-telemetry-popup .leaflet-popup-close-button:hover {

@@ -7,8 +7,11 @@ const RAW_STREAM_LIMIT = 50
 const ALERT_LIMIT = 20
 const TELEMETRY_ARCHIVE_LIMIT = 300
 const DEFAULT_API_PORT = '8000'
+const REPLAY_DELAY_MIN_MS = 120
+const REPLAY_DELAY_MAX_MS = 1200
 
 let persistTimer = null
+let replayTimer = null
 
 const buildApiBase = () => {
   const configuredBase = import.meta.env.VITE_API_BASE_URL
@@ -103,6 +106,55 @@ const hasValidPosition = (position) =>
 const formatTelemetryTime = (timestamp) =>
   new Date(parseTimestampToSeconds(timestamp) * 1000).toLocaleTimeString('zh-CN', { hour12: false })
 
+const sortRecordsByTimestamp = (records = []) =>
+  [...records].sort(
+    (left, right) =>
+      parseTimestampToSeconds(left?.timestamp ?? left?.telemetry?.timestamp, 0) -
+      parseTimestampToSeconds(right?.timestamp ?? right?.telemetry?.timestamp, 0)
+  )
+
+const getRecordTimestampSeconds = (record = {}, fallback = 0) =>
+  parseTimestampToSeconds(record?.timestamp ?? record?.telemetry?.timestamp ?? record?.raw_payload?.timestamp, fallback)
+
+const findLatestRawStreamData = (frames = [], matcher = () => true) => {
+  for (let index = frames.length - 1; index >= 0; index -= 1) {
+    const candidate = frames[index]?.data
+    if (candidate && typeof candidate === 'object' && matcher(candidate)) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
+const findLatestRecordAtOrBefore = (records = [], targetTimestamp, matcher = () => true) => {
+  if (!Array.isArray(records) || records.length === 0) {
+    return null
+  }
+
+  const targetSeconds = parseTimestampToSeconds(targetTimestamp, Number.POSITIVE_INFINITY)
+
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    const candidate = records[index]
+    if (!matcher(candidate)) {
+      continue
+    }
+
+    if (getRecordTimestampSeconds(candidate, Number.POSITIVE_INFINITY) <= targetSeconds) {
+      return candidate
+    }
+  }
+
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    const candidate = records[index]
+    if (matcher(candidate)) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
 const createDefaultDroneState = () => ({
   drone_id: 'DJI-NONE',
   timestamp: Date.now() / 1000,
@@ -158,9 +210,69 @@ const createHistoricalTrackPoint = (record = {}) => {
 }
 
 const buildHistoricalTrack = (detail = {}) =>
-  (Array.isArray(detail.telemetry_records) ? detail.telemetry_records : [])
+  sortRecordsByTimestamp(Array.isArray(detail.telemetry_records) ? detail.telemetry_records : [])
     .map((record) => createHistoricalTrackPoint(record))
     .filter(Boolean)
+
+const createReplayFrame = (record = {}) => {
+  const telemetry = record.telemetry && typeof record.telemetry === 'object' ? record.telemetry : record
+  const state = normalizeDroneStatePayload({ telemetry })
+  const trackPoint = createHistoricalTrackPoint(record)
+
+  if (!trackPoint) {
+    return null
+  }
+
+  const timestamp = parseTimestampToSeconds(record.timestamp ?? telemetry.timestamp, state.timestamp)
+
+  return {
+    ...state,
+    timestamp,
+    payload: record.raw_payload && typeof record.raw_payload === 'object' ? record.raw_payload : telemetry,
+    trackPoint,
+    timeLabel: formatTelemetryTime(timestamp)
+  }
+}
+
+const buildReplayFrames = (detail = {}) =>
+  sortRecordsByTimestamp(Array.isArray(detail.telemetry_records) ? detail.telemetry_records : [])
+    .map((record) => createReplayFrame(record))
+    .filter(Boolean)
+
+const createDefaultReplayState = () => ({
+  activeFlightId: '',
+  status: 'idle',
+  frameIndex: 0,
+  speed: 1,
+  error: ''
+})
+
+const clearReplayTimer = () => {
+  if (replayTimer) {
+    if (typeof window !== 'undefined') {
+      window.clearTimeout(replayTimer)
+    } else {
+      clearTimeout(replayTimer)
+    }
+    replayTimer = null
+  }
+}
+
+const getReplayDelayMs = (frames, frameIndex, speed = 1) => {
+  const currentFrame = frames[frameIndex]
+  const nextFrame = frames[frameIndex + 1]
+
+  if (!currentFrame || !nextFrame) {
+    return null
+  }
+
+  const currentTimestamp = parseTimestampToSeconds(currentFrame.timestamp, 0)
+  const nextTimestamp = parseTimestampToSeconds(nextFrame.timestamp, currentTimestamp)
+  const speedFactor = Math.max(Number(speed) || 1, 0.25)
+  const rawDelayMs = Math.max(0, (nextTimestamp - currentTimestamp) * 1000) / speedFactor
+
+  return clamp(Math.round(rawDelayMs || REPLAY_DELAY_MIN_MS), REPLAY_DELAY_MIN_MS, REPLAY_DELAY_MAX_MS)
+}
 
 const createDefaultState = () => ({
   droneState: createDefaultDroneState(),
@@ -178,6 +290,8 @@ const createDefaultState = () => ({
   selectedFlightSessionIds: [],
   flightSessionDetails: {},
   flightSessionTracks: {},
+  flightReplayFrames: {},
+  flightReplay: createDefaultReplayState(),
   localCacheMeta: {
     enabled: true,
     lastSavedAt: null
@@ -690,12 +804,256 @@ export const useDroneStore = defineStore('drone', {
               ? summary.attached_weather_devices.length > 0
               : false
           }
-        })
-        .filter(Boolean)
+          })
+          .filter(Boolean)
+    },
+    isReplayActive(state) {
+      return Boolean(state.flightReplay.activeFlightId && this.activeFlightReplayFrames.length)
+    },
+    activeFlightReplayFrames(state) {
+      if (!state.flightReplay.activeFlightId) {
+        return []
+      }
+
+      return state.flightReplayFrames[state.flightReplay.activeFlightId] || []
+    },
+    activeFlightReplayFrame() {
+      const frames = this.activeFlightReplayFrames
+      if (!frames.length) {
+        return null
+      }
+
+      const frameIndex = clamp(this.flightReplay.frameIndex, 0, frames.length - 1)
+      return frames[frameIndex] || null
+    },
+    activeFlightReplayTrack() {
+      const frames = this.activeFlightReplayFrames
+      if (!frames.length) {
+        return []
+      }
+
+      const frameIndex = clamp(this.flightReplay.frameIndex, 0, frames.length - 1)
+      return frames.slice(0, frameIndex + 1).map((frame) => frame.trackPoint)
+    },
+    activeFlightReplayProgress() {
+      const frames = this.activeFlightReplayFrames
+      if (!frames.length) {
+        return 0
+      }
+
+      if (frames.length === 1) {
+        return 100
+      }
+
+      const frameIndex = clamp(this.flightReplay.frameIndex, 0, frames.length - 1)
+      return Math.round((frameIndex / (frames.length - 1)) * 100)
+    },
+    currentDroneState(state) {
+      return this.isReplayActive && this.activeFlightReplayFrame
+        ? mergeDroneState(createDefaultDroneState(), this.activeFlightReplayFrame)
+        : state.droneState
+    },
+    currentFlightPayload(state) {
+      if (this.isReplayActive) {
+        return this.activeFlightReplayFrame?.payload || null
+      }
+
+      return findLatestRawStreamData(state.rawStream, (candidate) => candidate.type !== 'psdk_data')
+    },
+    currentWeatherFrame(state) {
+      if (this.isReplayActive) {
+        return findLatestRecordAtOrBefore(
+          state.flightSessionDetails[state.flightReplay.activeFlightId]?.psdk_records || [],
+          this.activeFlightReplayFrame?.timestamp,
+          (candidate) => candidate?.device_type === 'weather'
+        )
+      }
+
+      return findLatestRawStreamData(
+        state.rawStream,
+        (candidate) => candidate.type === 'psdk_data' && candidate.device_type === 'weather'
+      )
+    },
+    currentVisibilityFrame(state) {
+      if (this.isReplayActive) {
+        return findLatestRecordAtOrBefore(
+          state.flightSessionDetails[state.flightReplay.activeFlightId]?.psdk_records || [],
+          this.activeFlightReplayFrame?.timestamp,
+          (candidate) => candidate?.device_type === 'visibility'
+        )
+      }
+
+      return findLatestRawStreamData(
+        state.rawStream,
+        (candidate) => candidate.type === 'psdk_data' && candidate.device_type === 'visibility'
+      )
     }
   },
 
   actions: {
+    _setFlightReplayState(nextState = {}) {
+      this.flightReplay = {
+        ...this.flightReplay,
+        ...nextState
+      }
+    },
+    _scheduleFlightReplayAdvance() {
+      clearReplayTimer()
+
+      if (typeof window === 'undefined' || this.flightReplay.status !== 'playing') {
+        return
+      }
+
+      const frames = this.flightReplay.activeFlightId
+        ? this.flightReplayFrames[this.flightReplay.activeFlightId] || []
+        : []
+
+      if (frames.length < 2) {
+        this._setFlightReplayState({
+          status: frames.length ? 'completed' : 'idle'
+        })
+        return
+      }
+
+      if (this.flightReplay.frameIndex >= frames.length - 1) {
+        this._setFlightReplayState({ status: 'completed' })
+        return
+      }
+
+      const delayMs = getReplayDelayMs(frames, this.flightReplay.frameIndex, this.flightReplay.speed)
+      replayTimer = window.setTimeout(() => {
+        this.advanceFlightReplay()
+      }, delayMs ?? REPLAY_DELAY_MIN_MS)
+    },
+    async startFlightReplay(flightId) {
+      const detail = await this.fetchFlightSessionDetail(flightId)
+      const frames = this.flightReplayFrames[flightId] || []
+
+      if (!frames.length) {
+        clearReplayTimer()
+        this.flightReplay = {
+          ...createDefaultReplayState(),
+          activeFlightId: flightId,
+          error: '所选架次没有可回放的有效航迹'
+        }
+        return false
+      }
+
+      if (!this.selectedFlightSessionIds.includes(flightId)) {
+        this.selectedFlightSessionIds = [...this.selectedFlightSessionIds, flightId]
+      }
+
+      this.flightReplay = {
+        activeFlightId: flightId,
+        status: 'playing',
+        frameIndex: 0,
+        speed: this.flightReplay.activeFlightId === flightId ? this.flightReplay.speed : 1,
+        error: ''
+      }
+
+      this._scheduleFlightReplayAdvance()
+      return Boolean(detail)
+    },
+    pauseFlightReplay() {
+      if (this.flightReplay.status !== 'playing') {
+        return
+      }
+
+      clearReplayTimer()
+      this._setFlightReplayState({ status: 'paused' })
+    },
+    resumeFlightReplay() {
+      const frames = this.flightReplay.activeFlightId
+        ? this.flightReplayFrames[this.flightReplay.activeFlightId] || []
+        : []
+
+      if (!frames.length) {
+        return
+      }
+
+      const resetIndex = this.flightReplay.frameIndex >= frames.length - 1 ? 0 : this.flightReplay.frameIndex
+      this._setFlightReplayState({
+        frameIndex: resetIndex,
+        status: 'playing',
+        error: ''
+      })
+      this._scheduleFlightReplayAdvance()
+    },
+    stopFlightReplay() {
+      clearReplayTimer()
+      this.flightReplay = {
+        ...createDefaultReplayState(),
+        speed: this.flightReplay.speed
+      }
+    },
+    advanceFlightReplay() {
+      const frames = this.flightReplay.activeFlightId
+        ? this.flightReplayFrames[this.flightReplay.activeFlightId] || []
+        : []
+
+      if (!frames.length) {
+        this.stopFlightReplay()
+        return false
+      }
+
+      if (this.flightReplay.frameIndex >= frames.length - 1) {
+        clearReplayTimer()
+        this._setFlightReplayState({ status: 'completed' })
+        return false
+      }
+
+      this._setFlightReplayState({
+        frameIndex: this.flightReplay.frameIndex + 1,
+        status: 'playing'
+      })
+      this._scheduleFlightReplayAdvance()
+      return true
+    },
+    seekFlightReplay(frameIndex) {
+      const frames = this.flightReplay.activeFlightId
+        ? this.flightReplayFrames[this.flightReplay.activeFlightId] || []
+        : []
+
+      if (!frames.length) {
+        return
+      }
+
+      const nextIndex = clamp(Math.round(Number(frameIndex) || 0), 0, frames.length - 1)
+      const nextStatus =
+        nextIndex >= frames.length - 1
+          ? 'completed'
+          : this.flightReplay.status === 'playing'
+            ? 'playing'
+            : 'paused'
+
+      if (nextIndex === this.flightReplay.frameIndex && nextStatus === this.flightReplay.status) {
+        return
+      }
+
+      clearReplayTimer()
+
+      this._setFlightReplayState({
+        frameIndex: nextIndex,
+        status: nextStatus,
+        error: ''
+      })
+
+      if (this.flightReplay.status === 'playing') {
+        this._scheduleFlightReplayAdvance()
+      }
+    },
+    setFlightReplaySpeed(speed) {
+      const numericSpeed = Number(speed)
+      if (!Number.isFinite(numericSpeed) || numericSpeed <= 0) {
+        return
+      }
+
+      this._setFlightReplayState({ speed: numericSpeed })
+
+      if (this.flightReplay.status === 'playing') {
+        this._scheduleFlightReplayAdvance()
+      }
+    },
     updateDroneState(newState) {
       const previousState = this.droneState
       const normalizedState = normalizeDroneStatePayload(newState)
@@ -777,6 +1135,7 @@ export const useDroneStore = defineStore('drone', {
 
         const nextDetails = {}
         const nextTracks = {}
+        const nextReplayFrames = {}
         for (const flightId of this.selectedFlightSessionIds) {
           if (this.flightSessionDetails[flightId]) {
             nextDetails[flightId] = this.flightSessionDetails[flightId]
@@ -784,9 +1143,17 @@ export const useDroneStore = defineStore('drone', {
           if (this.flightSessionTracks[flightId]) {
             nextTracks[flightId] = this.flightSessionTracks[flightId]
           }
+          if (this.flightReplayFrames[flightId]) {
+            nextReplayFrames[flightId] = this.flightReplayFrames[flightId]
+          }
         }
         this.flightSessionDetails = nextDetails
         this.flightSessionTracks = nextTracks
+        this.flightReplayFrames = nextReplayFrames
+
+        if (!validIds.has(this.flightReplay.activeFlightId)) {
+          this.stopFlightReplay()
+        }
 
         return records
       } catch (error) {
@@ -807,15 +1174,17 @@ export const useDroneStore = defineStore('drone', {
         throw new Error(`HTTP ${response.status}`)
       }
 
-      const payload = await response.json()
-      const summary = normalizeFlightSessionSummary(payload)
-      const detail = {
-        ...payload,
-        ...summary,
-        telemetry_records: Array.isArray(payload?.telemetry_records) ? payload.telemetry_records : [],
-        psdk_records: Array.isArray(payload?.psdk_records) ? payload.psdk_records : [],
-        summary: payload?.summary || {}
-      }
+        const payload = await response.json()
+        const summary = normalizeFlightSessionSummary(payload)
+        const detail = {
+          ...payload,
+          ...summary,
+          telemetry_records: sortRecordsByTimestamp(
+            Array.isArray(payload?.telemetry_records) ? payload.telemetry_records : []
+          ),
+          psdk_records: sortRecordsByTimestamp(Array.isArray(payload?.psdk_records) ? payload.psdk_records : []),
+          summary: payload?.summary || {}
+        }
 
       this.flightSessionDetails = {
         ...this.flightSessionDetails,
@@ -824,6 +1193,10 @@ export const useDroneStore = defineStore('drone', {
       this.flightSessionTracks = {
         ...this.flightSessionTracks,
         [flightId]: buildHistoricalTrack(detail)
+      }
+      this.flightReplayFrames = {
+        ...this.flightReplayFrames,
+        [flightId]: buildReplayFrames(detail)
       }
 
       return detail
@@ -859,8 +1232,14 @@ export const useDroneStore = defineStore('drone', {
 
         const { [flightId]: _removedDetail, ...remainingDetails } = this.flightSessionDetails
         const { [flightId]: _removedTrack, ...remainingTracks } = this.flightSessionTracks
+        const { [flightId]: _removedReplayFrames, ...remainingReplayFrames } = this.flightReplayFrames
         this.flightSessionDetails = remainingDetails
         this.flightSessionTracks = remainingTracks
+        this.flightReplayFrames = remainingReplayFrames
+
+        if (this.flightReplay.activeFlightId === flightId) {
+          this.stopFlightReplay()
+        }
 
         if (refresh) {
           await this.fetchFlightSessions(true)

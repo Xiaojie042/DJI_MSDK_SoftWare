@@ -7,6 +7,8 @@ const store = useDroneStore()
 const records = computed(() => store.flightSessions)
 const selectedIds = computed(() => new Set(store.selectedFlightSessionIds))
 const selectedCount = computed(() => store.selectedFlightSessionIds.length)
+const replayFlightId = computed(() => store.flightReplay.activeFlightId)
+const replayStatus = computed(() => store.flightReplay.status)
 
 const formatDateTime = (timestamp) => {
   if (timestamp === null || timestamp === undefined) {
@@ -80,6 +82,48 @@ const handleShowSelected = () => {
 
   store.closeFlightHistoryPanel()
 }
+
+const isReplayTarget = (flightId) => replayFlightId.value === flightId
+
+const replayButtonText = (flightId) => {
+  if (!isReplayTarget(flightId)) {
+    return '开始回放'
+  }
+
+  if (replayStatus.value === 'playing') {
+    return '回放中'
+  }
+
+  if (replayStatus.value === 'paused') {
+    return '继续回放'
+  }
+
+  if (replayStatus.value === 'completed') {
+    return '重新回放'
+  }
+
+  return '开始回放'
+}
+
+const handleReplay = async (flightId) => {
+  try {
+    if (isReplayTarget(flightId) && replayStatus.value === 'playing') {
+      store.pauseFlightReplay()
+      return
+    }
+
+    if (isReplayTarget(flightId) && ['paused', 'completed'].includes(replayStatus.value)) {
+      store.resumeFlightReplay()
+    } else {
+      await store.startFlightReplay(flightId)
+    }
+
+    store.closeFlightHistoryPanel()
+  } catch (error) {
+    store.flightSessionsError = '历史架次回放启动失败'
+    console.warn(`Failed to start replay for flight session ${flightId}:`, error)
+  }
+}
 </script>
 
 <template>
@@ -111,6 +155,7 @@ const handleShowSelected = () => {
           <div class="history-toolbar__meta">
             <span>历史架次 {{ records.length }} 条</span>
             <span>已选中 {{ selectedCount }} 条</span>
+            <span v-if="replayFlightId">回放目标 {{ replayFlightId }}</span>
           </div>
 
           <div class="history-toolbar__actions">
@@ -140,6 +185,14 @@ const handleShowSelected = () => {
               :disabled="selectedCount === 0"
             >
               删除选中
+            </button>
+            <button
+              type="button"
+              class="toolbar-btn toolbar-btn--accent"
+              @click="store.stopFlightReplay()"
+              :disabled="!replayFlightId"
+            >
+              停止回放
             </button>
           </div>
         </div>
@@ -181,14 +234,24 @@ const handleShowSelected = () => {
                     <span>{{ record.drone_id || '未知无人机' }}</span>
                   </div>
 
-                  <button
-                    type="button"
-                    class="history-card__delete"
-                    :disabled="isDeleting(record.flight_id)"
-                    @click.stop="handleDelete(record.flight_id, record.file_name)"
-                  >
-                    {{ isDeleting(record.flight_id) ? '删除中...' : '删除' }}
-                  </button>
+                  <div class="history-card__actions">
+                    <button
+                      type="button"
+                      class="history-card__replay"
+                      :class="{ 'history-card__replay--active': isReplayTarget(record.flight_id) }"
+                      @click.stop="handleReplay(record.flight_id)"
+                    >
+                      {{ replayButtonText(record.flight_id) }}
+                    </button>
+                    <button
+                      type="button"
+                      class="history-card__delete"
+                      :disabled="isDeleting(record.flight_id)"
+                      @click.stop="handleDelete(record.flight_id, record.file_name)"
+                    >
+                      {{ isDeleting(record.flight_id) ? '删除中...' : '删除' }}
+                    </button>
+                  </div>
                 </div>
 
                 <div class="history-card__metrics">
@@ -435,6 +498,12 @@ const handleShowSelected = () => {
   align-items: flex-start;
 }
 
+.history-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
 .history-card__title {
   min-width: 0;
   display: flex;
@@ -461,6 +530,22 @@ const handleShowSelected = () => {
   background: rgba(239, 68, 68, 0.12);
   color: #fecaca;
   font-size: 0.74rem;
+}
+
+.history-card__replay {
+  min-height: 32px;
+  padding: 0 0.82rem;
+  border-radius: 10px;
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  background: rgba(245, 158, 11, 0.14);
+  color: #fef3c7;
+  font-size: 0.74rem;
+}
+
+.history-card__replay--active {
+  border-color: rgba(56, 189, 248, 0.22);
+  background: rgba(56, 189, 248, 0.14);
+  color: #bae6fd;
 }
 
 .history-card__delete:disabled {

@@ -3,6 +3,8 @@ import { computed } from 'vue'
 import { useDroneStore } from '@/stores/droneStore'
 
 const store = useDroneStore()
+const displayDroneState = computed(() => store.currentDroneState)
+const displayFlightPayload = computed(() => store.currentFlightPayload)
 
 const readPath = (source, path) => {
   if (!source || typeof source !== 'object') {
@@ -18,27 +20,16 @@ const readPath = (source, path) => {
   }, source)
 }
 
-const latestFlightPayload = computed(() => {
-  for (let index = store.rawStream.length - 1; index >= 0; index -= 1) {
-    const candidate = store.rawStream[index]?.data
-    if (candidate && typeof candidate === 'object' && candidate.type !== 'psdk_data') {
-      return candidate
-    }
-  }
-
-  return null
-})
-
 const flightStatus = computed(() => ({
-  isFlying: store.droneState.is_flying || false,
-  text: store.droneState.is_flying ? store.droneState.flight_mode || '飞行中' : '待命'
+  isFlying: displayDroneState.value.is_flying || false,
+  text: displayDroneState.value.is_flying ? displayDroneState.value.flight_mode || '飞行中' : '待命'
 }))
 
 const satelliteInfo = computed(() => {
   const value = Number(
-    readPath(latestFlightPayload.value, 'gps_satellite_count') ??
-      readPath(latestFlightPayload.value, 'satellite_count') ??
-      readPath(latestFlightPayload.value, 'satelliteCount')
+    readPath(displayFlightPayload.value, 'gps_satellite_count') ??
+      readPath(displayFlightPayload.value, 'satellite_count') ??
+      readPath(displayFlightPayload.value, 'satelliteCount')
   )
 
   if (!Number.isFinite(value)) {
@@ -62,7 +53,7 @@ const satelliteInfo = computed(() => {
 })
 
 const linkQuality = computed(() => {
-  if (store.droneState.rc_signal === null || store.droneState.rc_signal === undefined) {
+  if (displayDroneState.value.rc_signal === null || displayDroneState.value.rc_signal === undefined) {
     return {
       text: '--',
       level: 0,
@@ -70,7 +61,7 @@ const linkQuality = computed(() => {
     }
   }
 
-  const quality = Math.max(0, Math.min(5, Math.round(store.droneState.rc_signal / 20)))
+  const quality = Math.max(0, Math.min(5, Math.round(displayDroneState.value.rc_signal / 20)))
   let status = 'success'
   if (quality === 1) {
     status = 'danger'
@@ -86,7 +77,7 @@ const linkQuality = computed(() => {
 })
 
 const rcSignal = computed(() => {
-  const value = store.droneState.rc_signal
+  const value = displayDroneState.value.rc_signal
   if (value === null || value === undefined) {
     return {
       text: '--',
@@ -108,7 +99,7 @@ const rcSignal = computed(() => {
 })
 
 const droneBattery = computed(() => {
-  const value = store.droneState.battery.percent || 0
+  const value = displayDroneState.value.battery.percent || 0
   let status = 'success'
   if (value < 20) {
     status = 'danger'
@@ -142,17 +133,17 @@ const droneBattery = computed(() => {
       </div>
 
       <div class="status-item" :class="linkQuality.status">
-        <span class="emoji-icon">📶</span>
+        <span class="emoji-icon">链路</span>
         <span class="value">{{ linkQuality.text }}</span>
       </div>
 
       <div class="status-item" :class="satelliteInfo.status">
-        <span class="emoji-icon">🛰️</span>
+        <span class="emoji-icon">卫星</span>
         <span class="value">{{ satelliteInfo.text }}</span>
       </div>
 
       <div class="status-item" :class="rcSignal.status">
-        <span class="emoji-icon">🎮</span>
+        <span class="emoji-icon">遥控</span>
         <span class="value">{{ rcSignal.text }}</span>
       </div>
 
@@ -225,10 +216,10 @@ const droneBattery = computed(() => {
 }
 
 .status-item .emoji-icon {
-  font-size: 18px;
+  font-size: 0.82rem;
   line-height: 1;
   flex-shrink: 0;
-  opacity: 0.7;
+  opacity: 0.82;
   transition: opacity 0.2s ease, filter 0.2s ease;
 }
 
