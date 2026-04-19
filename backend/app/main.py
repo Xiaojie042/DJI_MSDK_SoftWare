@@ -50,14 +50,14 @@ async def lifespan(app: FastAPI):
 
     # 1. 初始化数据库
     await storage_service.init_db()
-    logger.info("✓ 数据库初始化完成")
+    logger.info("[OK] 数据库初始化完成")
 
     # 2. 连接 MQTT Broker
     try:
         mqtt_client.connect()
-        logger.info("✓ MQTT 客户端已启动")
+        logger.info("[OK] MQTT 客户端已启动")
     except Exception as e:
-        logger.warning(f"⚠ MQTT 连接失败 (将继续运行): {e}")
+        logger.warning(f"[WARN] MQTT 连接失败 (将继续运行): {e}")
 
     # 3. 创建数据分发器
     dispatcher = DataDispatcher(
@@ -69,12 +69,12 @@ async def lifespan(app: FastAPI):
     # 4. 启动 TCP Server 并注册回调
     tcp_server.register_callback(dispatcher.dispatch)
     await tcp_server.start()
-    logger.info("✓ TCP Server 已启动")
+    logger.info("[OK] TCP Server 已启动")
 
     logger.info("=" * 60)
-    logger.info(f"✓ 系统就绪 | API: http://{settings.api_host}:{settings.api_port}")
-    logger.info(f"✓ TCP Server 监听: {settings.tcp_server_host}:{settings.tcp_server_port}")
-    logger.info(f"✓ WebSocket 端点: ws://{settings.api_host}:{settings.api_port}/ws")
+    logger.info(f"[OK] 系统就绪 | API: http://{settings.api_host}:{settings.api_port}")
+    logger.info(f"[OK] TCP Server 监听: {settings.tcp_server_host}:{settings.tcp_server_port}")
+    logger.info(f"[OK] WebSocket 端点: ws://{settings.api_host}:{settings.api_port}/ws")
     logger.info("=" * 60)
 
     yield

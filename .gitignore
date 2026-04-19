@@ -23,6 +23,7 @@ venv/
 # Node.js
 node_modules/
 frontend/dist/
+Scripts/release/
 
 # OS
 .DS_Store
