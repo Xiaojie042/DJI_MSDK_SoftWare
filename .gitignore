@@ -38,3 +38,4 @@ backend/data/
 *.log
 logs/
 /.agent
+data/telemetry_raw.jsonl

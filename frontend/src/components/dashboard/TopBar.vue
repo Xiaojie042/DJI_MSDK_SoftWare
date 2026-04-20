@@ -133,17 +133,17 @@ const droneBattery = computed(() => {
       </div>
 
       <div class="status-item" :class="linkQuality.status">
-        <span class="emoji-icon">链路</span>
+        <span class="emoji-icon">📶</span>
         <span class="value">{{ linkQuality.text }}</span>
       </div>
 
       <div class="status-item" :class="satelliteInfo.status">
-        <span class="emoji-icon">卫星</span>
+        <span class="emoji-icon">🛰️</span>
         <span class="value">{{ satelliteInfo.text }}</span>
       </div>
 
       <div class="status-item" :class="rcSignal.status">
-        <span class="emoji-icon">遥控</span>
+        <span class="emoji-icon">🎮</span>
         <span class="value">{{ rcSignal.text }}</span>
       </div>
 

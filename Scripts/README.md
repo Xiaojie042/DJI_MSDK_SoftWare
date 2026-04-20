@@ -11,6 +11,9 @@
 Scripts/
   README.md
   build_release.bat
+  build_release_venv.bat
+  build_release_conda.bat
+  _build_release_common.bat
   start.bat
   stop.bat
   release.env.example
@@ -32,6 +35,7 @@ Scripts/
 
 - 前端：使用 `Vite build` 生成静态文件。
 - 后端：使用 `PyInstaller --onedir` 打包成独立目录版可执行程序。
+- 公共脚本会自动补齐所选 Python 环境的运行时 DLL，减少迁移到其他 Windows 机器时的缺库问题。
 - 前端静态服务：额外打包一个很小的 `frontend-server.exe`，避免目标机器再安装 Node.js 或额外 Web 服务。
 - 启动方式：保留 `Scripts/start.bat` 和 `Scripts/stop.bat`，通过批处理一键启动和停止。
 - 运行目录：打包后的实际交付文件都落在 `Scripts/release/` 下，便于整体复制到其他 Windows 电脑。
@@ -49,9 +53,10 @@ Scripts/
 
 1. 已安装 Python `3.11.x`。
 2. 已安装 Node.js `20 LTS`，并确保 `npm.cmd` 在 `PATH` 中可用。
-3. 仓库后端虚拟环境已创建在 `backend/.venv/`。
-4. 后端虚拟环境中已安装项目依赖和 `PyInstaller`。
-5. 前端依赖已在 `frontend/node_modules/` 中安装完成。
+3. 前端依赖已在 `frontend/node_modules/` 中安装完成。
+4. 二选一准备后端 Python 环境：
+   - 方案 A：仓库后端虚拟环境已创建在 `backend/.venv/`，并安装项目依赖和 `PyInstaller`
+   - 方案 B：系统 `conda` 环境已可用，默认环境名为 `drone-monitor`，并安装项目依赖和 `PyInstaller`
 
 建议先做这几个检查：
 
@@ -60,20 +65,39 @@ python --version
 node --version
 npm --version
 .\backend\.venv\Scripts\python.exe -m PyInstaller --version
+conda run -n drone-monitor python -m PyInstaller --version
 ```
 
-如果 `PyInstaller` 未安装，可以执行：
+如果你走 `.venv` 方案且 `PyInstaller` 未安装，可以执行：
 
 ```powershell
 .\backend\.venv\Scripts\python.exe -m pip install pyinstaller
+```
+
+如果你走 `conda` 方案且 `PyInstaller` 未安装，可以执行：
+
+```powershell
+conda run -n drone-monitor python -m pip install pyinstaller
 ```
 
 如果当前终端暂时识别不到 `npm.cmd`，也可以在打包前临时指定：
 
 ```powershell
 $env:NPM_CMD='C:\Users\你的用户名\AppData\Local\Programs\node-v20.20.2-win-x64\npm.cmd'
-.\Scripts\build_release.bat
+.\Scripts\build_release_venv.bat
 ```
+
+如果你使用 `conda` 脚本，还支持这些可选环境变量：
+
+```powershell
+$env:CONDA_ENV_NAME='drone-monitor'
+$env:CONDA_EXE='C:\ProgramData\miniconda3\condabin\conda.bat'
+$env:CONDA_PYTHON='C:\ProgramData\miniconda3\envs\drone-monitor\python.exe'
+```
+
+- `CONDA_ENV_NAME`：指定 conda 环境名，默认是 `drone-monitor`
+- `CONDA_EXE`：指定 `conda.bat` 或 `conda.exe` 的路径
+- `CONDA_PYTHON`：直接指定要打包使用的 Python，可跳过 `conda run`
 
 ## 前端打包教程
 
@@ -99,7 +123,7 @@ $env:VITE_API_PORT='8000'
 npm run build
 ```
 
-执行成功后，会生成 `frontend/dist/`，随后 `Scripts/build_release.bat` 会把它复制到 `Scripts/release/frontend/dist/`。
+执行成功后，会生成 `frontend/dist/`，随后打包脚本会把它复制到 `Scripts/release/frontend/dist/`。
 
 ## 后端打包教程
 
@@ -141,15 +165,36 @@ cd E:\github_project\DJI_MSDK_SoftWare
 
 ## 一键打包
 
-在仓库根目录执行：
+当前提供两套入口脚本：
+
+### 方案 A：使用 `backend/.venv`
 
 ```powershell
 .\Scripts\build_release.bat
 ```
 
+或者显式执行：
+
+```powershell
+.\Scripts\build_release_venv.bat
+```
+
+### 方案 B：使用系统 `conda` 环境
+
+```powershell
+.\Scripts\build_release_conda.bat
+```
+
+如果不是默认的 `drone-monitor` 环境，可以先指定环境名：
+
+```powershell
+$env:CONDA_ENV_NAME='你的环境名'
+.\Scripts\build_release_conda.bat
+```
+
 脚本会完成这些事情：
 
-1. 检查后端虚拟环境和 `npm.cmd` 是否可用。
+1. 检查所选后端 Python 环境、`PyInstaller` 和 `npm.cmd` 是否可用。
 2. 构建前端静态资源。
 3. 清理旧的二进制和旧的编译中间文件。
 4. 打包后端 `drone-backend.exe`。
@@ -244,6 +289,9 @@ API_HOST=0.0.0.0
 
 - `Scripts/README.md`
 - `Scripts/build_release.bat`
+- `Scripts/build_release_venv.bat`
+- `Scripts/build_release_conda.bat`
+- `Scripts/_build_release_common.bat`
 - `Scripts/start.bat`
 - `Scripts/stop.bat`
 - `Scripts/release.env.example`
