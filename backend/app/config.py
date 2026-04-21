@@ -40,6 +40,10 @@ class Settings(BaseSettings):
         default="./data/flights",
         description="Flight session JSON directory",
     )
+    runtime_config_path: str = Field(
+        default="./data/runtime_config.json",
+        description="Runtime config JSON path",
+    )
 
     # Logging
     log_level: str = Field(default="INFO", description="Log level")

@@ -39,9 +39,11 @@ const syncDraftFromStore = () => {
   Object.assign(draft.mqttCloud, configStore.mqttCloud)
 }
 
-const openPanel = () => {
+const openPanel = async () => {
   syncDraftFromStore()
   isOpen.value = true
+  await configStore.fetchRuntimeConfig()
+  syncDraftFromStore()
   void configStore.fetchBackendStatus()
 }
 
@@ -49,14 +51,16 @@ const closePanel = () => {
   isOpen.value = false
 }
 
-const savePanel = () => {
-  configStore.saveRuntimeConfig({
+const savePanel = async () => {
+  const saved = await configStore.applyRuntimeConfig({
     connection: { ...draft.connection },
     mqttLocal: { ...draft.mqttLocal },
     mqttCloud: { ...draft.mqttCloud }
   })
-  isOpen.value = false
-  void configStore.fetchBackendStatus()
+
+  if (saved) {
+    isOpen.value = false
+  }
 }
 
 const resetPanel = () => {

@@ -6,6 +6,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+from app.runtime_config import RuntimeConfigState
+
 
 class HealthResponse(BaseModel):
     status: str = "ok"
@@ -110,13 +112,29 @@ class DeleteFlightSessionResponse(BaseModel):
     deleted: bool = True
 
 
+class MqttTargetStatusResponse(BaseModel):
+    enabled: bool = False
+    connected: bool = False
+    broker: str = ""
+    client_id: str = ""
+    topic: str = ""
+    tls: bool = False
+    last_error: str = ""
+
+
 class SystemStatusResponse(BaseModel):
     status: str = "ok"
     tcp_server_port: int
     mqtt_broker: str
     mqtt_connected: bool
+    mqtt_targets: dict[str, MqttTargetStatusResponse] = Field(default_factory=dict)
     websocket_clients: int
     database: str
     raw_history_path: str
     flight_sessions_path: str
+    runtime_config_path: str
     uptime_seconds: Optional[float] = None
+
+
+RuntimeConfigRequest = RuntimeConfigState
+RuntimeConfigResponse = RuntimeConfigState

@@ -45,6 +45,11 @@ const sanitizeBoolean = (value, fallback = false) => {
   return fallback
 }
 
+const sanitizeTimestamp = (value) => {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null
+}
+
 const getLocationHostname = () => {
   if (typeof window === 'undefined') {
     return '127.0.0.1'
@@ -116,20 +121,32 @@ const createDefaultMqttTarget = (kind = 'local') =>
       }
 
 const normalizeConnectionConfig = (payload = {}, defaults = createDefaultConnectionConfig()) => ({
-  apiHost: sanitizeText(payload.apiHost, defaults.apiHost),
-  apiPort: sanitizePort(payload.apiPort, defaults.apiPort),
-  deviceListenPort: sanitizePort(payload.deviceListenPort, defaults.deviceListenPort)
+  apiHost: sanitizeText(payload.apiHost ?? payload.api_host, defaults.apiHost),
+  apiPort: sanitizePort(payload.apiPort ?? payload.api_port, defaults.apiPort),
+  deviceListenPort: sanitizePort(
+    payload.deviceListenPort ?? payload.device_listen_port,
+    defaults.deviceListenPort
+  )
 })
 
 const normalizeMqttTarget = (payload = {}, defaults = createDefaultMqttTarget()) => ({
   enabled: sanitizeBoolean(payload.enabled, defaults.enabled),
   host: sanitizeText(payload.host, defaults.host),
   port: sanitizePort(payload.port, defaults.port),
-  clientId: sanitizeText(payload.clientId, defaults.clientId),
+  clientId: sanitizeText(payload.clientId ?? payload.client_id, defaults.clientId),
   username: sanitizeText(payload.username, ''),
   password: String(payload.password ?? ''),
   topic: sanitizeText(payload.topic, defaults.topic),
   tls: sanitizeBoolean(payload.tls, defaults.tls)
+})
+
+const normalizeRuntimeConfigPayload = (payload = {}, defaults = createDefaultState()) => ({
+  connection: normalizeConnectionConfig(payload.connection, defaults.connection),
+  mqttLocal: normalizeMqttTarget(payload.mqtt_local ?? payload.mqttLocal, defaults.mqttLocal),
+  mqttCloud: normalizeMqttTarget(payload.mqtt_cloud ?? payload.mqttCloud, defaults.mqttCloud),
+  lastSavedAt: sanitizeTimestamp(payload.updated_at ?? payload.updatedAt)
+    ? Math.round(Number(payload.updated_at ?? payload.updatedAt) * 1000)
+    : defaults.lastSavedAt
 })
 
 const buildApiBaseUrl = (host, port) =>
@@ -143,19 +160,27 @@ const normalizeBackendStatus = (payload = {}) => ({
   tcpServerPort: Number(payload.tcp_server_port ?? payload.tcpServerPort ?? 0) || 0,
   mqttBroker: payload.mqtt_broker || payload.mqttBroker || '',
   mqttConnected: Boolean(payload.mqtt_connected ?? payload.mqttConnected),
+  mqttTargets:
+    payload.mqtt_targets && typeof payload.mqtt_targets === 'object'
+      ? payload.mqtt_targets
+      : payload.mqttTargets && typeof payload.mqttTargets === 'object'
+        ? payload.mqttTargets
+        : {},
   websocketClients: Number(payload.websocket_clients ?? payload.websocketClients ?? 0) || 0,
   uptimeSeconds: Number(payload.uptime_seconds ?? payload.uptimeSeconds ?? 0) || 0
 })
 
-const createDefaultState = () => ({
-  connection: createDefaultConnectionConfig(),
-  mqttLocal: createDefaultMqttTarget('local'),
-  mqttCloud: createDefaultMqttTarget('cloud'),
-  backendStatus: null,
-  statusLoading: false,
-  statusError: '',
-  lastSavedAt: null
-})
+function createDefaultState() {
+  return {
+    connection: createDefaultConnectionConfig(),
+    mqttLocal: createDefaultMqttTarget('local'),
+    mqttCloud: createDefaultMqttTarget('cloud'),
+    backendStatus: null,
+    statusLoading: false,
+    statusError: '',
+    lastSavedAt: null
+  }
+}
 
 const persistRuntimeConfig = (state) => {
   if (typeof window === 'undefined') {
@@ -203,6 +228,34 @@ const readPersistedState = () => {
   }
 }
 
+const buildBackendRuntimeConfigPayload = (state) => ({
+  connection: {
+    api_host: sanitizeText(state.connection.apiHost, getLocationHostname()),
+    api_port: Number(sanitizePort(state.connection.apiPort, DEFAULT_API_PORT)),
+    device_listen_port: Number(sanitizePort(state.connection.deviceListenPort, DEFAULT_DEVICE_LISTEN_PORT))
+  },
+  mqtt_local: {
+    enabled: Boolean(state.mqttLocal.enabled),
+    host: sanitizeText(state.mqttLocal.host),
+    port: Number(sanitizePort(state.mqttLocal.port, createDefaultMqttTarget('local').port)),
+    client_id: sanitizeText(state.mqttLocal.clientId, createDefaultMqttTarget('local').clientId),
+    username: sanitizeText(state.mqttLocal.username),
+    password: String(state.mqttLocal.password ?? ''),
+    topic: sanitizeText(state.mqttLocal.topic, createDefaultMqttTarget('local').topic),
+    tls: Boolean(state.mqttLocal.tls)
+  },
+  mqtt_cloud: {
+    enabled: Boolean(state.mqttCloud.enabled),
+    host: sanitizeText(state.mqttCloud.host),
+    port: Number(sanitizePort(state.mqttCloud.port, createDefaultMqttTarget('cloud').port)),
+    client_id: sanitizeText(state.mqttCloud.clientId, createDefaultMqttTarget('cloud').clientId),
+    username: sanitizeText(state.mqttCloud.username),
+    password: String(state.mqttCloud.password ?? ''),
+    topic: sanitizeText(state.mqttCloud.topic, createDefaultMqttTarget('cloud').topic),
+    tls: Boolean(state.mqttCloud.tls)
+  }
+})
+
 export const useRuntimeConfigStore = defineStore('runtime-config', {
   state: () => readPersistedState(),
 
@@ -224,6 +277,16 @@ export const useRuntimeConfigStore = defineStore('runtime-config', {
       persistRuntimeConfig(this)
     },
 
+    mergeRuntimeConfig(payload = {}) {
+      const normalized = normalizeRuntimeConfigPayload(payload, createDefaultState())
+      this.connection = normalized.connection
+      this.mqttLocal = normalized.mqttLocal
+      this.mqttCloud = normalized.mqttCloud
+      this.lastSavedAt = normalized.lastSavedAt || Date.now()
+      persistRuntimeConfig(this)
+      return normalized
+    },
+
     resetRuntimeConfig() {
       const defaults = createDefaultState()
       this.connection = defaults.connection
@@ -234,11 +297,61 @@ export const useRuntimeConfigStore = defineStore('runtime-config', {
       this.statusError = ''
       this.lastSavedAt = Date.now()
       persistRuntimeConfig(this)
+
+      return {
+        connection: { ...this.connection },
+        mqttLocal: { ...this.mqttLocal },
+        mqttCloud: { ...this.mqttCloud }
+      }
+    },
+
+    async fetchRuntimeConfig() {
+      try {
+        const response = await fetch(`${this.apiBaseUrl}/api/runtime-config`)
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+
+        const payload = await response.json()
+        this.statusError = ''
+        return this.mergeRuntimeConfig(payload)
+      } catch (error) {
+        this.statusError = 'Failed to load backend runtime config.'
+        console.warn('Failed to load backend runtime config:', error)
+        return null
+      }
+    },
+
+    async applyRuntimeConfig(payload = {}) {
+      this.saveRuntimeConfig(payload)
+
+      try {
+        const response = await fetch(`${this.apiBaseUrl}/api/runtime-config`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(buildBackendRuntimeConfigPayload(this))
+        })
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
+
+        const runtimePayload = await response.json()
+        this.mergeRuntimeConfig(runtimePayload)
+        this.statusError = ''
+        await this.fetchBackendStatus()
+        return true
+      } catch (error) {
+        this.statusError = 'Failed to sync runtime config to backend.'
+        console.warn('Failed to sync runtime config to backend:', error)
+        return false
+      }
     },
 
     async fetchBackendStatus() {
       this.statusLoading = true
-      this.statusError = ''
 
       try {
         const response = await fetch(`${this.apiBaseUrl}/api/status`)
@@ -248,10 +361,11 @@ export const useRuntimeConfigStore = defineStore('runtime-config', {
 
         const payload = await response.json()
         this.backendStatus = normalizeBackendStatus(payload)
+        this.statusError = ''
         return this.backendStatus
       } catch (error) {
         this.backendStatus = null
-        this.statusError = '当前端口暂时无法获取后端状态'
+        this.statusError = 'Current backend endpoint is unreachable.'
         console.warn('Failed to load backend status:', error)
         return null
       } finally {

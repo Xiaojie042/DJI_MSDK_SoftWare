@@ -1,111 +1,109 @@
-"""
-TCP Server 实现
-基于 asyncio 的异步 TCP 服务器，接收 DJI 遥控器数据流
-"""
+"""Async TCP server for incoming telemetry streams."""
 
 from __future__ import annotations
 
 import asyncio
-from typing import Optional, Callable, Awaitable
+from typing import Awaitable, Callable, Optional
 
 from app.config import settings
-from app.tcp_server.parser import TcpDataParser
 from app.models.drone import StreamMessage
+from app.tcp_server.parser import TcpDataParser
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# 数据回调类型: 接收解析后的流消息
 DataCallback = Callable[[StreamMessage], Awaitable[None]]
 
 
 class DroneTcpServer:
-    """
-    异步 TCP 服务器
-
-    接收 DJI MSDK Android 端通过网络接口发送的数据，
-    解析后通过回调分发给 MQTT / WebSocket / DB。
-    """
-
     def __init__(
         self,
         host: str = settings.tcp_server_host,
         port: int = settings.tcp_server_port,
-    ):
+    ) -> None:
         self.host = host
         self.port = port
         self._server: Optional[asyncio.Server] = None
         self._callbacks: list[DataCallback] = []
-        self._client_count: int = 0
+        self._client_count = 0
 
     def register_callback(self, callback: DataCallback) -> None:
-        """注册数据处理回调函数"""
         self._callbacks.append(callback)
-        logger.info("注册数据回调", callback=callback.__qualname__)
+        logger.info("TCP callback registered", callback=callback.__qualname__)
+
+    @property
+    def is_running(self) -> bool:
+        return self._server is not None
+
+    @property
+    def client_count(self) -> int:
+        return self._client_count
 
     async def start(self) -> None:
-        """启动 TCP 服务器"""
-        self._server = await asyncio.start_server(
-            self._handle_client,
-            self.host,
-            self.port,
-        )
-        addr = self._server.sockets[0].getsockname()
-        logger.info("TCP Server 已启动", host=addr[0], port=addr[1])
+        if self._server is not None:
+            return
+
+        self._server = await asyncio.start_server(self._handle_client, self.host, self.port)
+        address = self._server.sockets[0].getsockname()
+        logger.info("TCP server started", host=address[0], port=address[1])
 
     async def stop(self) -> None:
-        """停止 TCP 服务器"""
-        if self._server:
-            self._server.close()
-            await self._server.wait_closed()
-            logger.info("TCP Server 已停止")
+        if self._server is None:
+            return
+
+        server = self._server
+        self._server = None
+        server.close()
+        await server.wait_closed()
+        logger.info("TCP server stopped", port=self.port)
+
+    async def restart(self, *, host: Optional[str] = None, port: Optional[int] = None) -> None:
+        await self.stop()
+        if host is not None:
+            self.host = host
+        if port is not None:
+            self.port = port
+        await self.start()
 
     async def _handle_client(
         self,
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
-        """处理单个 TCP 客户端连接"""
         peer = writer.get_extra_info("peername")
-        self._client_count += 1
-        logger.info("TCP 客户端已连接", peer=peer, total_clients=self._client_count)
-
         parser = TcpDataParser()
+        self._client_count += 1
+        logger.info("TCP client connected", peer=peer, total_clients=self._client_count)
 
         try:
             while True:
                 data = await reader.read(4096)
                 if not data:
-                    # 连接关闭
                     break
 
-                logger.debug("收到 TCP 数据", size=len(data), peer=peer)
-
-                # 解析数据
-                states = parser.feed(data)
-                for state in states:
-                    # 分发给所有回调
+                logger.debug("TCP payload received", peer=peer, size=len(data))
+                messages = parser.feed(data)
+                for message in messages:
                     for callback in self._callbacks:
                         try:
-                            await callback(state)
-                        except Exception as e:
+                            await callback(message)
+                        except Exception as exc:
                             logger.error(
-                                "数据回调执行失败",
+                                "TCP callback failed",
                                 callback=callback.__qualname__,
-                                error=str(e),
+                                error=str(exc),
                             )
-
         except asyncio.CancelledError:
-            logger.info("TCP 客户端连接被取消", peer=peer)
+            logger.info("TCP client cancelled", peer=peer)
         except ConnectionResetError:
-            logger.warning("TCP 客户端连接重置", peer=peer)
-        except Exception as e:
-            logger.error("TCP 客户端处理异常", peer=peer, error=str(e))
+            logger.warning("TCP client connection reset", peer=peer)
+        except Exception as exc:
+            logger.error("TCP client failed", peer=peer, error=str(exc))
         finally:
-            self._client_count -= 1
+            self._client_count = max(0, self._client_count - 1)
             writer.close()
             try:
                 await writer.wait_closed()
             except Exception:
                 pass
-            logger.info("TCP 客户端已断开", peer=peer, total_clients=self._client_count)
+            logger.info("TCP client disconnected", peer=peer, total_clients=self._client_count)

@@ -1,158 +1,293 @@
-"""
-MQTT 客户端封装
-基于 paho-mqtt，负责将无人机遥测数据发布到本地 EMQX Broker
-"""
+"""MQTT client service with independent local and cloud targets."""
 
 from __future__ import annotations
 
 import json
 import threading
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import paho.mqtt.client as mqtt
 
-from app.config import settings
 from app.models.drone import DroneState
 from app.mqtt import topics
+from app.runtime_config import RuntimeMqttTargetConfig
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
-class MqttClient:
-    """
-    MQTT 客户端
+def _reason_code_value(reason_code: Any) -> int:
+    if reason_code is None:
+        return 0
 
-    在独立线程中运行 MQTT 事件循环，主线程通过 publish() 发布消息。
-    连接到本地 EMQX Broker。
-    """
+    value = getattr(reason_code, "value", reason_code)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return -1
 
-    def __init__(self):
+
+class _ManagedMqttTarget:
+    def __init__(
+        self,
+        name: str,
+        config: RuntimeMqttTargetConfig,
+        *,
+        client_factory: Callable[..., mqtt.Client],
+    ) -> None:
+        self.name = name
+        self._config = config.model_copy(deep=True)
+        self._client_factory = client_factory
         self._client: Optional[mqtt.Client] = None
-        self._connected: bool = False
+        self._connected = False
         self._lock = threading.Lock()
+        self._last_error = ""
 
-    def connect(self) -> None:
-        """建立 MQTT 连接"""
-        self._client = mqtt.Client(
-            client_id=settings.mqtt_client_id,
-            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
-        )
-
-        # 设置回调
-        self._client.on_connect = self._on_connect
-        self._client.on_disconnect = self._on_disconnect
-        self._client.on_publish = self._on_publish
-
-        # 认证 (如果配置了用户名密码)
-        if settings.mqtt_username:
-            self._client.username_pw_set(
-                settings.mqtt_username,
-                settings.mqtt_password,
-            )
-
-        # 遗嘱消息 (连接异常断开时发布)
-        self._client.will_set(
-            topic=topics.HEARTBEAT,
-            payload=json.dumps({"status": "offline", "client_id": settings.mqtt_client_id}),
-            qos=1,
-            retain=True,
-        )
-
-        try:
-            self._client.connect(
-                host=settings.mqtt_broker_host,
-                port=settings.mqtt_broker_port,
-                keepalive=60,
-            )
-            # 启动后台网络循环线程
-            self._client.loop_start()
-            logger.info(
-                "MQTT 客户端连接中",
-                broker=f"{settings.mqtt_broker_host}:{settings.mqtt_broker_port}",
-            )
-        except Exception as e:
-            logger.error("MQTT 连接失败", error=str(e))
-            raise
-
-    def disconnect(self) -> None:
-        """断开 MQTT 连接"""
-        if self._client:
-            # 发送离线消息
-            self._client.publish(
-                topic=topics.HEARTBEAT,
-                payload=json.dumps({"status": "offline", "client_id": settings.mqtt_client_id}),
-                qos=1,
-                retain=True,
-            )
-            self._client.loop_stop()
-            self._client.disconnect()
-            logger.info("MQTT 客户端已断开")
-
-    async def publish_telemetry(self, state: DroneState) -> None:
-        """
-        发布遥测数据到 MQTT
-
-        Args:
-            state: 无人机状态数据
-        """
-        if not self._connected:
-            logger.warning("MQTT 未连接，跳过发布")
-            return
-
-        payload = state.model_dump_json()
-
-        with self._lock:
-            result = self._client.publish(
-                topic=topics.TELEMETRY,
-                payload=payload,
-                qos=0,  # 遥测数据使用 QoS 0 (最多一次)
-            )
-
-        if result.rc == mqtt.MQTT_ERR_SUCCESS:
-            logger.debug("MQTT 遥测数据已发布", drone_id=state.drone_id)
-        else:
-            logger.warning("MQTT 发布失败", rc=result.rc)
-
-    async def publish_alert(self, topic: str, message: dict) -> None:
-        """发布告警消息"""
-        if not self._connected:
-            return
-
-        with self._lock:
-            self._client.publish(
-                topic=topic,
-                payload=json.dumps(message),
-                qos=1,  # 告警使用 QoS 1 (至少一次)
-            )
+    @property
+    def config(self) -> RuntimeMqttTargetConfig:
+        return self._config
 
     @property
     def is_connected(self) -> bool:
         return self._connected
 
-    # ─── 回调 ──────────────────────────────────────────
+    @property
+    def broker(self) -> str:
+        if not self._config.host:
+            return ""
+        return f"{self._config.host}:{self._config.port}"
 
-    def _on_connect(self, client, userdata, flags, rc, properties=None):
-        if rc == 0:
+    def set_config(self, config: RuntimeMqttTargetConfig) -> bool:
+        changed = self._config.model_dump() != config.model_dump()
+        self._config = config.model_copy(deep=True)
+        if not self._config.enabled:
+            self._last_error = ""
+        return changed
+
+    def connect(self) -> None:
+        self.disconnect()
+
+        if not self._config.enabled:
+            return
+
+        if not self._config.host:
+            self._last_error = f"{self.name} target is enabled but host is empty"
+            logger.warning("MQTT target skipped because host is empty", target=self.name)
+            return
+
+        client = self._client_factory(
+            client_id=self._config.client_id,
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+        )
+        client.on_connect = self._on_connect
+        client.on_disconnect = self._on_disconnect
+        client.on_publish = self._on_publish
+        client.reconnect_delay_set(min_delay=1, max_delay=30)
+
+        if self._config.username:
+            client.username_pw_set(self._config.username, self._config.password)
+
+        if self._config.tls:
+            client.tls_set()
+
+        client.will_set(
+            topic=topics.heartbeat(self._config.topic),
+            payload=self._heartbeat_payload("offline"),
+            qos=1,
+            retain=True,
+        )
+
+        try:
+            client.connect(self._config.host, self._config.port, keepalive=60)
+            client.loop_start()
+            self._client = client
+            self._last_error = ""
+            logger.info(
+                "MQTT target connecting",
+                target=self.name,
+                broker=self.broker,
+                topic=self._config.topic,
+            )
+        except Exception as exc:
+            self._client = None
+            self._connected = False
+            self._last_error = str(exc)
+            logger.warning("MQTT target connection failed", target=self.name, error=str(exc))
+
+    def disconnect(self) -> None:
+        client = self._client
+        if client is None:
+            self._connected = False
+            return
+
+        self._client = None
+        was_connected = self._connected
+        self._connected = False
+
+        try:
+            if was_connected:
+                client.publish(
+                    topic=topics.heartbeat(self._config.topic),
+                    payload=self._heartbeat_payload("offline"),
+                    qos=1,
+                    retain=True,
+                )
+        except Exception:
+            pass
+
+        try:
+            client.loop_stop()
+        except Exception:
+            pass
+
+        try:
+            client.disconnect()
+        except Exception:
+            pass
+
+    def publish_json(self, topic: str, payload: str, *, qos: int = 0, retain: bool = False) -> bool:
+        if not self._config.enabled or not self._connected or self._client is None:
+            return False
+
+        with self._lock:
+            result = self._client.publish(topic=topic, payload=payload, qos=qos, retain=retain)
+
+        if result.rc != mqtt.MQTT_ERR_SUCCESS:
+            self._last_error = f"publish rc={result.rc}"
+            logger.warning("MQTT publish failed", target=self.name, rc=result.rc, topic=topic)
+            return False
+
+        return True
+
+    def status_snapshot(self) -> dict[str, Any]:
+        return {
+            "enabled": self._config.enabled,
+            "connected": self._connected,
+            "broker": self.broker,
+            "client_id": self._config.client_id,
+            "topic": self._config.topic,
+            "tls": self._config.tls,
+            "last_error": self._last_error,
+        }
+
+    def _heartbeat_payload(self, status: str) -> str:
+        return json.dumps(
+            {
+                "target": self.name,
+                "status": status,
+                "client_id": self._config.client_id,
+            },
+            ensure_ascii=False,
+        )
+
+    def _on_connect(self, client, userdata, flags, reason_code, properties=None) -> None:
+        code = _reason_code_value(reason_code)
+        if code == 0:
             self._connected = True
-            # 发送上线消息
+            self._last_error = ""
             client.publish(
-                topic=topics.HEARTBEAT,
-                payload=json.dumps({"status": "online", "client_id": settings.mqtt_client_id}),
+                topic=topics.heartbeat(self._config.topic),
+                payload=self._heartbeat_payload("online"),
                 qos=1,
                 retain=True,
             )
-            logger.info("MQTT 已连接到 Broker")
-        else:
-            self._connected = False
-            logger.error("MQTT 连接失败", rc=rc)
+            logger.info("MQTT target connected", target=self.name, broker=self.broker)
+            return
 
-    def _on_disconnect(self, client, userdata, flags, rc, properties=None):
         self._connected = False
-        if rc != 0:
-            logger.warning("MQTT 意外断开，将自动重连", rc=rc)
-        else:
-            logger.info("MQTT 已正常断开")
+        self._last_error = f"connect rc={code}"
+        logger.warning("MQTT target connect rejected", target=self.name, rc=code)
 
-    def _on_publish(self, client, userdata, mid, rc=None, properties=None):
-        logger.debug("MQTT 消息已发布", mid=mid)
+    def _on_disconnect(self, client, userdata, disconnect_flags=None, reason_code=None, properties=None) -> None:
+        code = _reason_code_value(reason_code)
+        self._connected = False
+        if code not in (0, mqtt.MQTT_ERR_SUCCESS):
+            self._last_error = f"disconnect rc={code}"
+            logger.warning("MQTT target disconnected unexpectedly", target=self.name, rc=code)
+        else:
+            logger.info("MQTT target disconnected", target=self.name)
+
+    def _on_publish(self, client, userdata, mid, reason_code=None, properties=None) -> None:
+        logger.debug("MQTT message published", target=self.name, mid=mid)
+
+
+class MqttClient:
+    """Publish telemetry to independent local and cloud MQTT targets."""
+
+    def __init__(self, *, client_factory: Callable[..., mqtt.Client] = mqtt.Client) -> None:
+        self._client_factory = client_factory
+        self._started = False
+        self._targets = {
+            "local": _ManagedMqttTarget(
+                "local",
+                RuntimeMqttTargetConfig(
+                    enabled=False,
+                    client_id="drone-monitor-local",
+                    topic="drone/telemetry",
+                ),
+                client_factory=self._client_factory,
+            ),
+            "cloud": _ManagedMqttTarget(
+                "cloud",
+                RuntimeMqttTargetConfig(
+                    enabled=False,
+                    client_id="drone-monitor-cloud",
+                    topic="drone/telemetry/cloud",
+                ),
+                client_factory=self._client_factory,
+            ),
+        }
+
+    def configure(
+        self,
+        local_config: RuntimeMqttTargetConfig,
+        cloud_config: RuntimeMqttTargetConfig,
+    ) -> None:
+        next_configs = {
+            "local": local_config,
+            "cloud": cloud_config,
+        }
+
+        for name, config in next_configs.items():
+            changed = self._targets[name].set_config(config)
+            if self._started and changed:
+                self._targets[name].connect()
+
+    def connect(self) -> None:
+        self._started = True
+        for target in self._targets.values():
+            target.connect()
+
+    def disconnect(self) -> None:
+        self._started = False
+        for target in self._targets.values():
+            target.disconnect()
+
+    async def publish_telemetry(self, state: DroneState) -> None:
+        payload = state.model_dump_json()
+        for target in self._targets.values():
+            target.publish_json(topics.telemetry(target.config.topic), payload, qos=0)
+
+    async def publish_alert(self, category: str, message: dict[str, Any]) -> None:
+        payload = json.dumps(message, ensure_ascii=False)
+        for target in self._targets.values():
+            target.publish_json(topics.alert(target.config.topic, category), payload, qos=1)
+
+    @property
+    def is_connected(self) -> bool:
+        return any(target.is_connected for target in self._targets.values())
+
+    @property
+    def primary_broker(self) -> str:
+        for name in ("local", "cloud"):
+            broker = self._targets[name].broker
+            if broker:
+                return broker
+        return ""
+
+    @property
+    def status_snapshot(self) -> dict[str, dict[str, Any]]:
+        return {
+            name: target.status_snapshot()
+            for name, target in self._targets.items()
+        }

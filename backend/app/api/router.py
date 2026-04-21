@@ -1,4 +1,4 @@
-"""REST API routes for system status, telemetry history, and flight sessions."""
+"""REST API routes for system status, runtime config, and flight history."""
 
 from __future__ import annotations
 
@@ -17,6 +17,8 @@ from app.api.schemas import (
     HealthResponse,
     RawHistoryRecordResponse,
     RawHistoryResponse,
+    RuntimeConfigRequest,
+    RuntimeConfigResponse,
     SystemStatusResponse,
 )
 from app.config import settings
@@ -35,6 +37,12 @@ def get_mqtt():
     from app.main import mqtt_client
 
     return mqtt_client
+
+
+def get_runtime_config_service():
+    from app.main import runtime_config_service
+
+    return runtime_config_service
 
 
 def get_ws_manager():
@@ -59,17 +67,34 @@ async def health_check() -> HealthResponse:
 async def system_status() -> SystemStatusResponse:
     mqtt = get_mqtt()
     ws = get_ws_manager()
+    runtime_config = get_runtime_config_service().get_config()
     return SystemStatusResponse(
         status="ok",
-        tcp_server_port=settings.tcp_server_port,
-        mqtt_broker=f"{settings.mqtt_broker_host}:{settings.mqtt_broker_port}",
+        tcp_server_port=runtime_config.connection.device_listen_port,
+        mqtt_broker=mqtt.primary_broker,
         mqtt_connected=mqtt.is_connected,
+        mqtt_targets=mqtt.status_snapshot,
         websocket_clients=ws.connection_count,
         database=settings.database_url,
         raw_history_path=settings.raw_history_path,
         flight_sessions_path=settings.flight_sessions_path,
+        runtime_config_path=settings.runtime_config_path,
         uptime_seconds=round(time.time() - _start_time, 1),
     )
+
+
+@router.get("/runtime-config", response_model=RuntimeConfigResponse)
+async def get_runtime_config() -> RuntimeConfigResponse:
+    return get_runtime_config_service().get_config()
+
+
+@router.put("/runtime-config", response_model=RuntimeConfigResponse)
+async def update_runtime_config(payload: RuntimeConfigRequest) -> RuntimeConfigResponse:
+    runtime_config_service = get_runtime_config_service()
+    try:
+        return await runtime_config_service.update(payload)
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to restart TCP listener: {exc}") from exc
 
 
 @router.get("/history", response_model=FlightHistoryResponse)

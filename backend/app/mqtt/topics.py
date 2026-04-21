@@ -1,23 +1,40 @@
-"""
-MQTT Topic 常量定义
-"""
+"""MQTT topic helpers."""
 
 from app.config import settings
 
-# Topic 前缀
-PREFIX = settings.mqtt_topic_prefix
 
-# 遥测数据 Topic
-TELEMETRY = f"{PREFIX}/data"
+def normalize_prefix(prefix: str) -> str:
+    normalized = str(prefix or "").strip().strip("/")
+    return normalized or "drone/telemetry"
 
-# 电池告警 Topic
-BATTERY_ALERT = f"{PREFIX}/alert/battery"
 
-# GPS 丢失告警 Topic
-GPS_LOST_ALERT = f"{PREFIX}/alert/gps"
+def telemetry(prefix: str) -> str:
+    return f"{normalize_prefix(prefix)}/data"
 
-# 飞行状态变更
-FLIGHT_STATUS = f"{PREFIX}/status"
 
-# 系统心跳
-HEARTBEAT = f"{PREFIX}/heartbeat"
+def alert(prefix: str, category: str) -> str:
+    return f"{normalize_prefix(prefix)}/alert/{str(category).strip('/')}"
+
+
+def battery_alert(prefix: str) -> str:
+    return alert(prefix, "battery")
+
+
+def gps_lost_alert(prefix: str) -> str:
+    return alert(prefix, "gps")
+
+
+def flight_status(prefix: str) -> str:
+    return f"{normalize_prefix(prefix)}/status"
+
+
+def heartbeat(prefix: str) -> str:
+    return f"{normalize_prefix(prefix)}/heartbeat"
+
+
+PREFIX = normalize_prefix(settings.mqtt_topic_prefix)
+TELEMETRY = telemetry(PREFIX)
+BATTERY_ALERT = battery_alert(PREFIX)
+GPS_LOST_ALERT = gps_lost_alert(PREFIX)
+FLIGHT_STATUS = flight_status(PREFIX)
+HEARTBEAT = heartbeat(PREFIX)
