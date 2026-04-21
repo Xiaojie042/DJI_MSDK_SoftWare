@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useDroneStore } from '@/stores/droneStore'
+import ConnectionConfigEntry from '@/components/dashboard/ConnectionConfigEntry.vue'
 
 const store = useDroneStore()
 const displayDroneState = computed(() => store.currentDroneState)
@@ -56,7 +57,6 @@ const linkQuality = computed(() => {
   if (displayDroneState.value.rc_signal === null || displayDroneState.value.rc_signal === undefined) {
     return {
       text: '--',
-      level: 0,
       status: 'normal'
     }
   }
@@ -71,7 +71,6 @@ const linkQuality = computed(() => {
 
   return {
     text: `${quality}/5`,
-    level: quality,
     status
   }
 })
@@ -121,15 +120,17 @@ const droneBattery = computed(() => {
       <h1 class="text-gradient">DJI 飞行指挥中心</h1>
     </div>
 
+    <div class="top-bar__center">
+      <ConnectionConfigEntry />
+    </div>
+
     <div class="status-bar">
       <div class="status-item">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
           <path d="M12 2L2 7l10 5 10-5-10-5z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
           <path d="M2 17l10 5 10-5M2 12l10 5 10-5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
-        <span class="value" :class="{ active: flightStatus.isFlying }">
-          {{ flightStatus.text }}
-        </span>
+        <span class="value" :class="{ active: flightStatus.isFlying }">{{ flightStatus.text }}</span>
       </div>
 
       <div class="status-item" :class="linkQuality.status">
@@ -161,19 +162,23 @@ const droneBattery = computed(() => {
 
 <style scoped>
 .top-bar {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(220px, auto) minmax(320px, 1fr) minmax(360px, auto);
   align-items: center;
-  gap: 1.5rem;
-  padding: 0 1.4rem;
-  min-height: 74px;
+  gap: 0.85rem;
+  padding: 0.24rem 1.1rem;
+  min-height: 55px;
   border-radius: 22px;
   flex-shrink: 0;
 }
 
+.logo {
+  min-width: 0;
+}
+
 .eyebrow {
-  margin: 0 0 0.2rem;
-  font-size: 0.75rem;
+  margin: 0 0 0.06rem;
+  font-size: 0.68rem;
   letter-spacing: 0.18em;
   color: rgba(148, 163, 184, 0.8);
   text-transform: uppercase;
@@ -181,24 +186,36 @@ const droneBattery = computed(() => {
 
 .logo h1 {
   margin: 0;
-  font-size: 1.55rem;
+  font-size: 1.42rem;
   font-weight: 700;
   letter-spacing: 0.04em;
 }
 
-.status-bar {
+.top-bar__center {
+  min-width: 0;
   display: flex;
+  justify-content: center;
+}
+
+.top-bar__center > * {
+  width: 100%;
+}
+
+.status-bar {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
-  width: 50%;
   justify-content: flex-end;
+  gap: 0.7rem;
 }
 
 .status-item {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.65rem 1rem;
+  min-height: 38px;
+  padding: 0 0.82rem;
   background: var(--bg-panel);
   border: 1px solid rgba(148, 163, 184, 0.12);
   border-radius: 12px;
@@ -207,15 +224,15 @@ const droneBattery = computed(() => {
   transition: all 0.2s ease;
 }
 
-.status-item .icon {
-  width: 18px;
-  height: 18px;
+.icon {
+  width: 17px;
+  height: 17px;
   color: var(--text-muted);
   flex-shrink: 0;
   transition: color 0.2s ease;
 }
 
-.status-item .emoji-icon {
+.emoji-icon {
   font-size: 0.82rem;
   line-height: 1;
   flex-shrink: 0;
@@ -223,15 +240,15 @@ const droneBattery = computed(() => {
   transition: opacity 0.2s ease, filter 0.2s ease;
 }
 
-.status-item .value {
-  font-size: 0.9rem;
+.value {
+  font-size: 0.84rem;
   font-weight: 600;
   color: var(--text-muted);
   white-space: nowrap;
   transition: color 0.2s ease;
 }
 
-.status-item .value.active {
+.value.active {
   color: var(--success);
 }
 
@@ -284,35 +301,37 @@ const droneBattery = computed(() => {
 @keyframes pulse-danger {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.36);
   }
   50% {
     box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
   }
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1280px) {
+  .top-bar {
+    grid-template-columns: minmax(220px, auto) minmax(280px, 1fr);
+  }
+
   .status-bar {
-    width: 100%;
-    flex-wrap: wrap;
+    grid-column: 1 / -1;
+    justify-content: flex-start;
   }
 }
 
 @media (max-width: 900px) {
   .top-bar {
-    flex-direction: column;
-    align-items: flex-start;
+    grid-template-columns: 1fr;
     padding: 1rem;
   }
 
+  .top-bar__center,
   .status-bar {
-    width: 100%;
-    justify-content: flex-start;
+    justify-content: stretch;
   }
 
   .status-item {
-    flex: 1;
-    min-width: 0;
+    flex: 1 1 140px;
     justify-content: center;
   }
 }

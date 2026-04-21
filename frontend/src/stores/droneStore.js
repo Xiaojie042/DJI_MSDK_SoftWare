@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { useRuntimeConfigStore } from '@/stores/runtimeConfigStore'
 
 const LOCAL_CACHE_KEY = 'drone-monitor:telemetry-cache:v1'
 const TRACK_LIMIT = 5000
@@ -6,25 +7,13 @@ const HISTORY_LIMIT = 50
 const RAW_STREAM_LIMIT = 50
 const ALERT_LIMIT = 20
 const TELEMETRY_ARCHIVE_LIMIT = 300
-const DEFAULT_API_PORT = '8000'
 const REPLAY_DELAY_MIN_MS = 120
 const REPLAY_DELAY_MAX_MS = 1200
 
 let persistTimer = null
 let replayTimer = null
 
-const buildApiBase = () => {
-  const configuredBase = import.meta.env.VITE_API_BASE_URL
-  if (configuredBase) {
-    return configuredBase.replace(/\/$/, '')
-  }
-
-  const host = import.meta.env.VITE_API_HOST || window.location.hostname
-  const port = import.meta.env.VITE_API_PORT || DEFAULT_API_PORT
-  return `${window.location.protocol}//${host}:${port}`
-}
-
-const createApiUrl = (path) => `${buildApiBase()}${path}`
+const createApiUrl = (path) => `${useRuntimeConfigStore().apiBaseUrl}${path}`
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
 const toFiniteNumber = (value, fallback = 0) => {

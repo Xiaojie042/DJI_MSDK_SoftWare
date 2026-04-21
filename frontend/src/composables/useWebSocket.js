@@ -1,46 +1,40 @@
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useDroneStore } from '@/stores/droneStore'
-
-const DEFAULT_API_PORT = '8000'
-
-const buildApiBase = () => {
-  const configuredBase = import.meta.env.VITE_API_BASE_URL
-  if (configuredBase) {
-    return configuredBase.replace(/\/$/, '')
-  }
-
-  return ''
-}
-
-const buildWebSocketUrl = () => {
-  const configuredUrl = import.meta.env.VITE_WS_URL
-  if (configuredUrl) {
-    return configuredUrl
-  }
-
-  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const wsHost = import.meta.env.VITE_API_HOST || window.location.hostname
-  const wsPort = import.meta.env.VITE_API_PORT || DEFAULT_API_PORT
-  return `${wsProtocol}//${wsHost}:${wsPort}/ws`
-}
-
-const createApiUrl = (path) => {
-  const base = buildApiBase()
-  return base ? `${base}${path}` : path
-}
+import { useRuntimeConfigStore } from '@/stores/runtimeConfigStore'
 
 export function useWebSocket() {
-  const url = buildWebSocketUrl()
   const store = useDroneStore()
+  const runtimeConfigStore = useRuntimeConfigStore()
   const socket = ref(null)
+  const socketUrl = computed(() => runtimeConfigStore.webSocketUrl)
   let reconnectTimer = null
+
+  const clearReconnectTimer = () => {
+    if (reconnectTimer) {
+      clearInterval(reconnectTimer)
+      reconnectTimer = null
+    }
+  }
+
+  const disposeSocket = () => {
+    if (!socket.value) {
+      return
+    }
+
+    socket.value.onopen = null
+    socket.value.onmessage = null
+    socket.value.onclose = null
+    socket.value.onerror = null
+    socket.value.close()
+    socket.value = null
+  }
 
   const fetchJsonWithTimeout = async (path, timeoutMs = 2500) => {
     const controller = new AbortController()
     const timer = window.setTimeout(() => controller.abort(), timeoutMs)
 
     try {
-      const response = await fetch(createApiUrl(path), { signal: controller.signal })
+      const response = await fetch(`${runtimeConfigStore.apiBaseUrl}${path}`, { signal: controller.signal })
       if (!response.ok) {
         return null
       }
@@ -68,20 +62,23 @@ export function useWebSocket() {
     }
   }
 
-  const connect = () => {
-    try {
-      socket.value = new WebSocket(url)
+  const connect = (targetUrl = socketUrl.value) => {
+    if (!targetUrl) {
+      return
+    }
 
-      socket.value.onopen = () => {
+    try {
+      const nextSocket = new WebSocket(targetUrl)
+      socket.value = nextSocket
+
+      nextSocket.onopen = () => {
         console.log('WebSocket Connected')
         store.setConnectionStatus(true)
-        if (reconnectTimer) {
-          clearInterval(reconnectTimer)
-          reconnectTimer = null
-        }
+        clearReconnectTimer()
+        void runtimeConfigStore.fetchBackendStatus()
       }
 
-      socket.value.onmessage = (event) => {
+      nextSocket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
           if (data.type === 'alert') {
@@ -96,15 +93,16 @@ export function useWebSocket() {
         }
       }
 
-      socket.value.onclose = () => {
+      nextSocket.onclose = () => {
         console.log('WebSocket Disconnected')
         store.setConnectionStatus(false)
+        socket.value = null
         scheduleReconnect()
       }
 
-      socket.value.onerror = (error) => {
+      nextSocket.onerror = (error) => {
         console.error('WebSocket Error:', error)
-        socket.value.close()
+        nextSocket.close()
       }
     } catch (error) {
       console.error('WS connection initiation failed:', error)
@@ -116,24 +114,32 @@ export function useWebSocket() {
     if (!reconnectTimer) {
       reconnectTimer = setInterval(() => {
         console.log('Attempting to reconnect...')
-        connect()
+        connect(socketUrl.value)
       }, 3000)
     }
   }
 
-  onMounted(() => {
-    connect()
-    void hydrateFromBackend()
-  })
+  watch(
+    socketUrl,
+    (nextUrl) => {
+      clearReconnectTimer()
+      store.setConnectionStatus(false)
+      disposeSocket()
+
+      if (!nextUrl) {
+        return
+      }
+
+      connect(nextUrl)
+      void hydrateFromBackend()
+      void runtimeConfigStore.fetchBackendStatus()
+    },
+    { immediate: true }
+  )
 
   onUnmounted(() => {
-    if (socket.value) {
-      socket.value.close()
-    }
-    if (reconnectTimer) {
-      clearInterval(reconnectTimer)
-      reconnectTimer = null
-    }
+    clearReconnectTimer()
+    disposeSocket()
   })
 
   return {
