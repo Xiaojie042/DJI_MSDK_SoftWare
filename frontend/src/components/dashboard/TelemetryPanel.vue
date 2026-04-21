@@ -107,8 +107,7 @@ const formatDistanceLimit = () => {
           <div class="policy-badge track-chip">{{ store.flightTrack.length }} 点</div>
         </div>
         <strong>当前航迹</strong>
-        <p class="clamp-two">支持清除当前实时轨迹，也可以打开历史架次面板叠加查看历史飞行轨迹。</p>
-
+        <p class="clamp-two"></p>
         <div class="track-actions">
           <button type="button" class="track-action-button track-action-button--primary" @click="store.clearCurrentTrack">
             清除轨迹
@@ -125,9 +124,6 @@ const formatDistanceLimit = () => {
           </button>
         </div>
 
-        <small class="clamp-one">
-          历史面板支持多选轨迹叠加、取消选中隐藏，以及删除历史架次。
-        </small>
       </article>
 
       <article class="status-card battery-card" :class="healthTone">

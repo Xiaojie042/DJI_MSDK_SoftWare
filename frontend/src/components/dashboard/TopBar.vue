@@ -7,6 +7,24 @@ const store = useDroneStore()
 const displayDroneState = computed(() => store.currentDroneState)
 const displayFlightPayload = computed(() => store.currentFlightPayload)
 
+const FLIGHT_MODE_LABELS = {
+  DISCONNECTED: '未连接',
+  UNKNOWN: '状态未知',
+  TAKE_OFF_READY: '起飞准备',
+  AUTO_TAKE_OFF: '自动起飞',
+  GPS: 'GPS 飞行',
+  GPS_NORMAL: 'GPS 正常飞行',
+  'P-GPS': 'GPS 定位飞行',
+  HOVER: '悬停',
+  GO_HOME: '返航中',
+  AUTO_LANDING: '自动降落',
+  ATTI: '姿态模式',
+  LOW_BATTERY_PREPARE_RTH: '低电量返航准备',
+  BATTERY_DIAGNOSIS_PROTECT: '电池保护'
+}
+
+const LINK_QUALITY_LABELS = ['无信号', '很弱', '较弱', '一般', '良好', '很强']
+
 const readPath = (source, path) => {
   if (!source || typeof source !== 'object') {
     return undefined
@@ -21,9 +39,20 @@ const readPath = (source, path) => {
   }, source)
 }
 
+const translateFlightMode = (value, isFlying = false) => {
+  const rawMode = String(value || '').trim()
+  if (!rawMode) {
+    return isFlying ? '飞行中' : '待命'
+  }
+
+  const normalizedMode = rawMode.toUpperCase()
+  return FLIGHT_MODE_LABELS[normalizedMode] || FLIGHT_MODE_LABELS[rawMode] || rawMode.replace(/_/g, ' ')
+}
+
 const flightStatus = computed(() => ({
+  raw: displayDroneState.value.flight_mode || '',
   isFlying: displayDroneState.value.is_flying || false,
-  text: displayDroneState.value.is_flying ? displayDroneState.value.flight_mode || '飞行中' : '待命'
+  text: translateFlightMode(displayDroneState.value.flight_mode, displayDroneState.value.is_flying || false)
 }))
 
 const satelliteInfo = computed(() => {
@@ -130,7 +159,9 @@ const droneBattery = computed(() => {
           <path d="M12 2L2 7l10 5 10-5-10-5z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
           <path d="M2 17l10 5 10-5M2 12l10 5 10-5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
-        <span class="value" :class="{ active: flightStatus.isFlying }">{{ flightStatus.text }}</span>
+        <span class="value" :class="{ active: flightStatus.isFlying }" :title="flightStatus.raw || flightStatus.text">
+          {{ flightStatus.text }}
+        </span>
       </div>
 
       <div class="status-item" :class="linkQuality.status">
@@ -163,7 +194,7 @@ const droneBattery = computed(() => {
 <style scoped>
 .top-bar {
   display: grid;
-  grid-template-columns: minmax(220px, auto) minmax(320px, 1fr) minmax(360px, auto);
+  grid-template-columns: minmax(0, 1fr) 300px minmax(0, 1fr);
   align-items: center;
   gap: 0.85rem;
   padding: 0.24rem 1.1rem;
@@ -174,6 +205,7 @@ const droneBattery = computed(() => {
 
 .logo {
   min-width: 0;
+  justify-self: start;
 }
 
 .eyebrow {
@@ -193,12 +225,16 @@ const droneBattery = computed(() => {
 
 .top-bar__center {
   min-width: 0;
+  width: 100%;
+  max-width: 300px;
   display: flex;
   justify-content: center;
+  justify-self: center;
 }
 
 .top-bar__center > * {
   width: 100%;
+  max-width: 300px;
 }
 
 .status-bar {
@@ -207,6 +243,7 @@ const droneBattery = computed(() => {
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
+  justify-self: end;
   gap: 0.7rem;
 }
 
@@ -310,11 +347,12 @@ const droneBattery = computed(() => {
 
 @media (max-width: 1280px) {
   .top-bar {
-    grid-template-columns: minmax(220px, auto) minmax(280px, 1fr);
+    grid-template-columns: minmax(0, 1fr) 300px;
   }
 
   .status-bar {
     grid-column: 1 / -1;
+    justify-self: stretch;
     justify-content: flex-start;
   }
 }
@@ -323,6 +361,10 @@ const droneBattery = computed(() => {
   .top-bar {
     grid-template-columns: 1fr;
     padding: 1rem;
+  }
+
+  .top-bar__center {
+    justify-self: start;
   }
 
   .top-bar__center,

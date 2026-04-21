@@ -115,15 +115,10 @@ const cloudMqttSummary = computed(() =>
 <template>
   <div class="config-hub">
     <button class="config-launcher glass-panel" type="button" @click="openPanel">
-      <div class="config-launcher__copy">
-        <p class="config-eyebrow"></p>
-        <strong>web端口 {{ configStore.connection.apiPort }}</strong>
-      </div>
-
       <div class="config-launcher__chips">
         <span class="config-chip">监听 {{ backendListenPort }}</span>
-        <span class="config-chip" :class="{ 'config-chip--active': configStore.mqttLocal.enabled }">本地 MQTT</span>
-        <span class="config-chip" :class="{ 'config-chip--active': configStore.mqttCloud.enabled }">云端 MQTT</span>
+        <span class="config-chip" :class="{ 'config-chip--active': configStore.mqttLocal.enabled }">本地</span>
+        <span class="config-chip" :class="{ 'config-chip--active': configStore.mqttCloud.enabled }">云端</span>
       </div>
     </button>
 
@@ -314,17 +309,18 @@ const cloudMqttSummary = computed(() =>
 <style scoped>
 .config-hub {
   width: 100%;
+  max-width: 300px;
   display: flex;
   justify-content: center;
 }
 
 .config-launcher {
-  width: min(100%, 520px);
+  width: min(100%, 300px);
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.85rem 1rem;
+  justify-content: center;
+  gap: 0.55rem;
+  padding: 0.44rem 0.7rem;
   border-radius: 18px;
   background:
     linear-gradient(135deg, rgba(14, 165, 233, 0.08), rgba(59, 130, 246, 0.06)),
@@ -341,23 +337,6 @@ const cloudMqttSummary = computed(() =>
   box-shadow: 0 18px 36px rgba(2, 6, 23, 0.22);
 }
 
-.config-launcher__copy {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.config-launcher__copy strong {
-  color: #f8fafc;
-  font-size: 0.98rem;
-}
-
-.config-launcher__copy span {
-  color: #94a3b8;
-  font-size: 0.74rem;
-}
-
 .config-eyebrow,
 .section-eyebrow {
   margin: 0;
@@ -370,20 +349,21 @@ const cloudMqttSummary = computed(() =>
 .config-launcher__chips {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.45rem;
+  width: 100%;
+  justify-content: center;
+  gap: 0.35rem;
 }
 
 .config-chip {
   display: inline-flex;
   align-items: center;
-  min-height: 26px;
-  padding: 0 0.68rem;
+  min-height: 22px;
+  padding: 0 0.52rem;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.48);
   border: 1px solid rgba(148, 163, 184, 0.16);
   color: #cbd5e1;
-  font-size: 0.72rem;
+  font-size: 0.66rem;
   white-space: nowrap;
 }
 
