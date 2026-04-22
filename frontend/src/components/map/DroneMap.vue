@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useDroneStore } from '@/stores/droneStore'
 import FlightReplayDock from '@/components/map/FlightReplayDock.vue'
 import { LCircleMarker, LMap, LMarker, LPolyline, LPopup, LTileLayer } from '@vue-leaflet/vue-leaflet'
@@ -12,11 +12,16 @@ const HISTORY_TRACK_RENDER_LIMIT = 1200
 
 const store = useDroneStore()
 const zoom = ref(16)
+const DEFAULT_MAP_CENTER = [31.2304, 121.4737]
+const mapCenter = ref([...DEFAULT_MAP_CENTER])
+const liveAutoFollowEnabled = ref(true)
+const mapOptions = {
+  preferCanvas: true
+}
 const tileLayerOptions = {
   subdomains: ['1', '2', '3', '4'],
   keepBuffer: 8,
-  updateWhenIdle: true,
-  updateWhenZooming: false
+  crossOrigin: 'anonymous'
 }
 
 const popupOptions = {
@@ -39,6 +44,7 @@ const historyTrackPopupOptions = {
   offset: [0, -6],
 }
 
+const currentDroneState = computed(() => store.currentDroneState)
 const hasLivePosition = computed(() =>
   Number.isFinite(store.droneState.position.latitude) &&
   Number.isFinite(store.droneState.position.longitude) &&
@@ -58,13 +64,6 @@ const replayPosition = computed(() => {
 
   return null
 })
-
-const mapCenter = computed(() =>
-  replayPosition.value ||
-  (hasLivePosition.value
-    ? [store.droneState.position.latitude, store.droneState.position.longitude]
-    : [31.2304, 121.4737])
-)
 
 const trackPoints = computed(() => store.flightTrack)
 const sampleTrackPoints = (points, maxPoints) => {
@@ -141,6 +140,53 @@ const dronePosition = computed(() =>
       : null
 )
 
+watch(
+  dronePosition,
+  (nextPosition) => {
+    if (!nextPosition || isReplayActive.value || !liveAutoFollowEnabled.value) {
+      return
+    }
+
+    mapCenter.value = [...nextPosition]
+  },
+  { immediate: true }
+)
+
+watch(
+  replayPosition,
+  (nextPosition) => {
+    if (!nextPosition || !isReplayActive.value) {
+      return
+    }
+
+    mapCenter.value = [...nextPosition]
+  },
+  { immediate: true }
+)
+
+watch(
+  isReplayActive,
+  (active) => {
+    if (active) {
+      if (replayPosition.value) {
+        mapCenter.value = [...replayPosition.value]
+      }
+      return
+    }
+
+    if (dronePosition.value && liveAutoFollowEnabled.value) {
+      mapCenter.value = [...dronePosition.value]
+    }
+  },
+  { immediate: true }
+)
+
+const handleMapDragStart = () => {
+  if (!isReplayActive.value) {
+    liveAutoFollowEnabled.value = false
+  }
+}
+
 const hasValue = (value) => value !== undefined && value !== null && value !== ''
 const toNumber = (value, fallback = 0) => {
   const numeric = Number(value)
@@ -176,17 +222,7 @@ const readFirstValue = (source, paths, fallback = undefined) => {
   return fallback
 }
 
-const latestFlightRawData = computed(() => {
-  for (let index = store.rawStream.length - 1; index >= 0; index -= 1) {
-    const candidate = store.rawStream[index]?.data
-
-    if (candidate && typeof candidate === 'object' && candidate.type !== 'psdk_data') {
-      return candidate
-    }
-  }
-
-  return null
-})
+const latestFlightRawData = computed(() => store.currentFlightPayload)
 
 const normalizeModelName = (value) => {
   if (!hasValue(value)) {
@@ -217,13 +253,13 @@ const normalizeModelName = (value) => {
 
 const popupTelemetry = computed(() => {
   const source = latestFlightRawData.value || {}
-  const position = store.droneState.position || {}
+  const position = currentDroneState.value.position || {}
 
   const pitch = toNumber(readFirstValue(source, ['attitude.pitch']), 0)
   const roll = toNumber(readFirstValue(source, ['attitude.roll']), 0)
   const heading = toNumber(
-    readFirstValue(source, ['heading', 'aircraft_heading'], store.droneState.heading),
-    store.droneState.heading
+    readFirstValue(source, ['heading', 'aircraft_heading'], currentDroneState.value.heading),
+    currentDroneState.value.heading
   )
   const yaw = toNumber(readFirstValue(source, ['attitude.yaw'], heading), heading)
   const latitude = toNumber(
@@ -330,9 +366,15 @@ const attitudeVisualStyle = computed(() => {
 })
 
 const droneIcon = computed(() => {
-  const batteryPercent = store.droneState.battery.percent || 0
+  const batteryPercent = currentDroneState.value.battery.percent || 0
   const accentColor =
-    batteryPercent <= 20 ? '#ef4444' : batteryPercent <= 45 ? '#f59e0b' : '#22c55e'
+    isReplayActive.value
+      ? '#f59e0b'
+      : batteryPercent <= 20
+        ? '#ef4444'
+        : batteryPercent <= 45
+          ? '#f59e0b'
+          : '#22c55e'
 
   return L.divIcon({
     className: 'custom-drone-icon',
@@ -363,7 +405,14 @@ const droneIcon = computed(() => {
 
 <template>
   <div class="map-shell">
-    <l-map v-model:zoom="zoom" :center="mapCenter" :useGlobalLeaflet="false" :zoom-control="false">
+    <l-map
+      v-model:center="mapCenter"
+      v-model:zoom="zoom"
+      :options="mapOptions"
+      :useGlobalLeaflet="false"
+      :zoom-control="false"
+      @dragstart="handleMapDragStart"
+    >
       <l-tile-layer
         url="https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}"
         layer-type="base"
@@ -439,15 +488,10 @@ const droneIcon = computed(() => {
         :weight="1"
       />
 
-      <l-circle-marker
+      <l-marker
         v-if="replayPosition"
         :lat-lng="replayPosition"
-        :radius="9"
-        color="#fef3c7"
-        fill-color="#f59e0b"
-        :fill-opacity="0.95"
-        :opacity="1"
-        :weight="2"
+        :icon="droneIcon"
       >
         <l-popup :options="historyTrackPopupOptions">
           <article class="history-track-popup-card history-track-popup-card--replay">
@@ -457,7 +501,7 @@ const droneIcon = computed(() => {
             <span>速度 {{ formatSpeed(replayFrame?.velocity?.horizontal) }}</span>
           </article>
         </l-popup>
-      </l-circle-marker>
+      </l-marker>
 
       <l-marker v-if="dronePosition" :lat-lng="dronePosition" :icon="droneIcon">
         <l-popup :options="popupOptions">
@@ -532,6 +576,11 @@ const droneIcon = computed(() => {
   width: 100%;
   height: 100%;
   background: #0f172a;
+}
+
+.map-shell canvas {
+  backface-visibility: hidden;
+  will-change: transform;
 }
 
 .custom-drone-icon {

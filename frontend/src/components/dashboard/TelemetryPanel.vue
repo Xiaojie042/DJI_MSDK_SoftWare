@@ -21,6 +21,7 @@ const localSavedTime = computed(() => {
 const batteryScoreText = computed(() =>
   store.batteryHealth.score === null ? '--' : `${store.batteryHealth.score}`
 )
+const latestFlightPayload = computed(() => store.latestLiveFlightPayload)
 
 const hasValue = (value) => value !== undefined && value !== null && value !== ''
 
@@ -42,20 +43,8 @@ const readPath = (source, path) => {
   }, source)
 }
 
-const latestFlightPayload = () => {
-  for (let index = store.rawStream.length - 1; index >= 0; index -= 1) {
-    const candidate = store.rawStream[index]?.data
-
-    if (candidate && typeof candidate === 'object' && candidate.type !== 'psdk_data') {
-      return candidate
-    }
-  }
-
-  return null
-}
-
 const readFlightValue = (paths, fallback = null) => {
-  const payload = latestFlightPayload()
+  const payload = latestFlightPayload.value
 
   if (!payload) {
     return fallback

@@ -9,6 +9,7 @@ const ALERT_LIMIT = 20
 const TELEMETRY_ARCHIVE_LIMIT = 300
 const REPLAY_DELAY_MIN_MS = 120
 const REPLAY_DELAY_MAX_MS = 1200
+const PERSIST_DEBOUNCE_MS = 800
 
 let persistTimer = null
 let replayTimer = null
@@ -236,6 +237,60 @@ const createDefaultReplayState = () => ({
   error: ''
 })
 
+const createLiveFrameCache = (frames = []) => {
+  let latestLiveFlightPayloadCache = null
+  let latestLiveWeatherFrameCache = null
+  let latestLiveVisibilityFrameCache = null
+
+  for (const frame of frames) {
+    const candidate = frame?.data
+    if (!candidate || typeof candidate !== 'object') {
+      continue
+    }
+
+    if (candidate.type === 'psdk_data') {
+      if (candidate.device_type === 'weather') {
+        latestLiveWeatherFrameCache = candidate
+      } else if (candidate.device_type === 'visibility') {
+        latestLiveVisibilityFrameCache = candidate
+      }
+    } else {
+      latestLiveFlightPayloadCache = candidate
+    }
+  }
+
+  return {
+    latestLiveFlightPayloadCache,
+    latestLiveWeatherFrameCache,
+    latestLiveVisibilityFrameCache
+  }
+}
+
+const applyLiveFrameCache = (store, frame) => {
+  const candidate = frame?.data
+  if (!candidate || typeof candidate !== 'object') {
+    return
+  }
+
+  if (candidate.type === 'psdk_data') {
+    if (candidate.device_type === 'weather') {
+      store.latestLiveWeatherFrameCache = candidate
+    } else if (candidate.device_type === 'visibility') {
+      store.latestLiveVisibilityFrameCache = candidate
+    }
+    return
+  }
+
+  store.latestLiveFlightPayloadCache = candidate
+}
+
+const refreshLiveFrameCache = (store) => {
+  const liveFrameCache = createLiveFrameCache(store.rawStream)
+  store.latestLiveFlightPayloadCache = liveFrameCache.latestLiveFlightPayloadCache
+  store.latestLiveWeatherFrameCache = liveFrameCache.latestLiveWeatherFrameCache
+  store.latestLiveVisibilityFrameCache = liveFrameCache.latestLiveVisibilityFrameCache
+}
+
 const clearReplayTimer = () => {
   if (replayTimer) {
     if (typeof window !== 'undefined') {
@@ -269,6 +324,9 @@ const createDefaultState = () => ({
   isConnected: false,
   history: [],
   rawStream: [],
+  latestLiveFlightPayloadCache: null,
+  latestLiveWeatherFrameCache: null,
+  latestLiveVisibilityFrameCache: null,
   flightTrack: [],
   telemetryArchive: [],
   flightHistoryPanelOpen: false,
@@ -319,13 +377,18 @@ const readPersistedState = () => {
     }
 
     const parsed = JSON.parse(raw)
+    const rawStream = Array.isArray(parsed.rawStream) ? parsed.rawStream.slice(-RAW_STREAM_LIMIT) : defaults.rawStream
+    const liveFrameCache = createLiveFrameCache(rawStream)
 
     return {
       ...defaults,
       droneState: mergeDroneState(defaults.droneState, parsed.droneState || {}),
       alerts: Array.isArray(parsed.alerts) ? parsed.alerts.slice(0, ALERT_LIMIT) : defaults.alerts,
       history: Array.isArray(parsed.history) ? parsed.history.slice(-HISTORY_LIMIT) : defaults.history,
-      rawStream: Array.isArray(parsed.rawStream) ? parsed.rawStream.slice(-RAW_STREAM_LIMIT) : defaults.rawStream,
+      rawStream,
+      latestLiveFlightPayloadCache: liveFrameCache.latestLiveFlightPayloadCache,
+      latestLiveWeatherFrameCache: liveFrameCache.latestLiveWeatherFrameCache,
+      latestLiveVisibilityFrameCache: liveFrameCache.latestLiveVisibilityFrameCache,
       flightTrack: Array.isArray(parsed.flightTrack) ? parsed.flightTrack.slice(-TRACK_LIMIT) : defaults.flightTrack,
       telemetryArchive: Array.isArray(parsed.telemetryArchive)
         ? parsed.telemetryArchive.slice(-TELEMETRY_ARCHIVE_LIMIT)
@@ -571,20 +634,18 @@ const schedulePersistence = (store) => {
     return
   }
 
-  const nextSavedAt = Date.now()
-  store.localCacheMeta = {
-    ...store.localCacheMeta,
-    lastSavedAt: nextSavedAt
-  }
-
   if (persistTimer) {
     window.clearTimeout(persistTimer)
   }
 
   persistTimer = window.setTimeout(() => {
+    store.localCacheMeta = {
+      ...store.localCacheMeta,
+      lastSavedAt: Date.now()
+    }
     persistStateToLocal(store)
     persistTimer = null
-  }, 250)
+  }, PERSIST_DEBOUNCE_MS)
 }
 
 const getBatteryHealth = (battery, isConnected) => {
@@ -769,6 +830,24 @@ export const useDroneStore = defineStore('drone', {
     localArchiveCount(state) {
       return state.telemetryArchive.length
     },
+    latestLiveFlightPayload(state) {
+      return state.latestLiveFlightPayloadCache || findLatestRawStreamData(
+        state.rawStream,
+        (candidate) => candidate.type !== 'psdk_data'
+      )
+    },
+    latestLiveWeatherFrame(state) {
+      return state.latestLiveWeatherFrameCache || findLatestRawStreamData(
+        state.rawStream,
+        (candidate) => candidate.type === 'psdk_data' && candidate.device_type === 'weather'
+      )
+    },
+    latestLiveVisibilityFrame(state) {
+      return state.latestLiveVisibilityFrameCache || findLatestRawStreamData(
+        state.rawStream,
+        (candidate) => candidate.type === 'psdk_data' && candidate.device_type === 'visibility'
+      )
+    },
     historicalTracks(state) {
       return state.selectedFlightSessionIds
         .map((flightId) => {
@@ -847,7 +926,7 @@ export const useDroneStore = defineStore('drone', {
         return this.activeFlightReplayFrame?.payload || null
       }
 
-      return findLatestRawStreamData(state.rawStream, (candidate) => candidate.type !== 'psdk_data')
+      return this.latestLiveFlightPayload
     },
     currentWeatherFrame(state) {
       if (this.isReplayActive) {
@@ -858,10 +937,7 @@ export const useDroneStore = defineStore('drone', {
         )
       }
 
-      return findLatestRawStreamData(
-        state.rawStream,
-        (candidate) => candidate.type === 'psdk_data' && candidate.device_type === 'weather'
-      )
+      return this.latestLiveWeatherFrame
     },
     currentVisibilityFrame(state) {
       if (this.isReplayActive) {
@@ -872,10 +948,7 @@ export const useDroneStore = defineStore('drone', {
         )
       }
 
-      return findLatestRawStreamData(
-        state.rawStream,
-        (candidate) => candidate.type === 'psdk_data' && candidate.device_type === 'visibility'
-      )
+      return this.latestLiveVisibilityFrame
     }
   },
 
@@ -1063,9 +1136,11 @@ export const useDroneStore = defineStore('drone', {
       const rawFrame = buildRawStreamFrame(newState, mergedState.timestamp)
 
       this.rawStream.push(rawFrame)
+      applyLiveFrameCache(this, rawFrame)
 
       if (this.rawStream.length > RAW_STREAM_LIMIT) {
         this.rawStream.shift()
+        refreshLiveFrameCache(this)
       }
 
       if (hasValidPosition(mergedState.position)) {
@@ -1259,9 +1334,11 @@ export const useDroneStore = defineStore('drone', {
       const rawFrame = buildRawStreamFrame(framePayload, fallbackTimestamp)
 
       this.rawStream.push(rawFrame)
+      applyLiveFrameCache(this, rawFrame)
 
       if (this.rawStream.length > RAW_STREAM_LIMIT) {
         this.rawStream.shift()
+        refreshLiveFrameCache(this)
       }
 
       schedulePersistence(this)
@@ -1299,6 +1376,7 @@ export const useDroneStore = defineStore('drone', {
           .map((record, index) =>
             buildRawStreamFrame(record.telemetry || record, record.stored_at || record.timestamp || index)
           )
+        refreshLiveFrameCache(this)
 
         if (normalizedHistory.length === 0) {
           const latestRawState = normalizeDroneStatePayload(rawRecords[rawRecords.length - 1] || {})

@@ -26,6 +26,34 @@ const replayFlight = computed(() => {
   )
 })
 
+const replayStatusText = computed(() => {
+  if (store.flightReplay.status === 'playing') {
+    return '播放中'
+  }
+
+  if (store.flightReplay.status === 'paused') {
+    return '已暂停'
+  }
+
+  if (store.flightReplay.status === 'completed') {
+    return '已完成'
+  }
+
+  return '待播放'
+})
+
+const replayActionText = computed(() => {
+  if (store.flightReplay.status === 'playing') {
+    return '暂停'
+  }
+
+  if (store.flightReplay.status === 'completed') {
+    return '重播'
+  }
+
+  return '播放'
+})
+
 const progressMax = computed(() => Math.max(replayFrames.value.length - 1, 0))
 const speedOptions = [0.5, 1, 2, 4]
 
@@ -156,6 +184,15 @@ const handleSeekEnd = (event) => {
 const handleSpeedChange = (event) => {
   store.setFlightReplaySpeed(event.target.value)
 }
+
+const handleCloseReplay = () => {
+  clearSeekTimer()
+  pendingSeekValue.value = null
+  isSeeking.value = false
+  resumeAfterSeek.value = false
+  sliderValue.value = 0
+  store.stopFlightReplay()
+}
 </script>
 
 <template>
@@ -166,8 +203,14 @@ const handleSpeedChange = (event) => {
         <strong>{{ replayFlight?.file_name || store.flightReplay.activeFlightId }}</strong>
       </div>
 
-      <div class="replay-status" :class="`replay-status--${store.flightReplay.status}`">
-        {{ store.flightReplay.status === 'playing' ? '播放中' : store.flightReplay.status === 'paused' ? '已暂停' : store.flightReplay.status === 'completed' ? '已完成' : '待播放' }}
+      <div class="replay-dock__header-actions">
+        <div class="replay-status" :class="`replay-status--${store.flightReplay.status}`">
+          {{ replayStatusText }}
+        </div>
+
+        <button type="button" class="replay-close-btn" @click="handleCloseReplay" aria-label="关闭回放面板">
+          &times;
+        </button>
       </div>
     </header>
 
@@ -210,9 +253,8 @@ const handleSpeedChange = (event) => {
 
     <div class="replay-dock__controls">
       <button type="button" class="replay-btn replay-btn--primary" @click="handleTogglePlay">
-        {{ store.flightReplay.status === 'playing' ? '暂停' : store.flightReplay.status === 'completed' ? '重播' : '播放' }}
+        {{ replayActionText }}
       </button>
-      <button type="button" class="replay-btn" @click="store.stopFlightReplay()">停止</button>
 
       <label class="replay-speed">
         <span>倍速</span>
@@ -248,6 +290,12 @@ const handleSpeedChange = (event) => {
   gap: 0.75rem;
 }
 
+.replay-dock__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
 .replay-dock__title {
   min-width: 0;
 }
@@ -275,6 +323,23 @@ const handleSpeedChange = (event) => {
   border-radius: 999px;
   font-size: 0.72rem;
   font-weight: 700;
+}
+
+.replay-close-btn {
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 999px;
+  background: rgba(30, 41, 59, 0.58);
+  color: #cbd5e1;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.replay-close-btn:hover {
+  color: #f8fafc;
+  border-color: rgba(248, 250, 252, 0.28);
 }
 
 .replay-status--playing {
