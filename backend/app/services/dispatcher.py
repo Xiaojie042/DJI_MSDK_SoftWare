@@ -111,11 +111,12 @@ class DataDispatcher:
         )
 
         results = await asyncio.gather(
+            self.mqtt.publish_psdk_data(message),
             self.ws.broadcast_json(message.model_dump(mode="json")),
             self.storage.save_psdk_data(message),
             return_exceptions=True,
         )
 
-        for name, result in zip(("WebSocket", "RawHistory"), results):
+        for name, result in zip(("MQTT", "WebSocket", "RawHistory"), results):
             if isinstance(result, Exception):
                 logger.error(f"{name} PSDK dispatch failed", error=str(result))

@@ -16,6 +16,15 @@ def alert(prefix: str, category: str) -> str:
     return f"{normalize_prefix(prefix)}/alert/{str(category).strip('/')}"
 
 
+def psdk(prefix: str, device_type: str) -> str:
+    normalized_device_type = str(device_type or "").strip().strip("/") or "unknown"
+    return f"{normalize_prefix(prefix)}/psdk/{normalized_device_type}"
+
+
+def psdk_weather(prefix: str) -> str:
+    return psdk(prefix, "weather")
+
+
 def battery_alert(prefix: str) -> str:
     return alert(prefix, "battery")
 

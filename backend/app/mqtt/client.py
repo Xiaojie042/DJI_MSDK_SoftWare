@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import json
 import threading
+from copy import deepcopy
 from typing import Any, Callable, Optional
 
 import paho.mqtt.client as mqtt
 
-from app.models.drone import DroneState
+from app.models.drone import DroneState, PsdkDataMessage
 from app.mqtt import topics
 from app.runtime_config import RuntimeMqttTargetConfig
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+WEATHER_AGGREGATE_DEVICE_TYPES = {"weather", "visibility"}
 
 
 def _reason_code_value(reason_code: Any) -> int:
@@ -217,6 +219,9 @@ class MqttClient:
     def __init__(self, *, client_factory: Callable[..., mqtt.Client] = mqtt.Client) -> None:
         self._client_factory = client_factory
         self._started = False
+        self._psdk_lock = threading.Lock()
+        self._latest_weather_payload: Optional[dict[str, Any]] = None
+        self._latest_visibility_payload: Optional[dict[str, Any]] = None
         self._targets = {
             "local": _ManagedMqttTarget(
                 "local",
@@ -273,6 +278,19 @@ class MqttClient:
         for target in self._targets.values():
             target.publish_json(topics.alert(target.config.topic, category), payload, qos=1)
 
+    async def publish_psdk_data(self, message: PsdkDataMessage) -> None:
+        normalized_device_type = self._normalize_device_type(message.device_type)
+
+        if normalized_device_type in WEATHER_AGGREGATE_DEVICE_TYPES:
+            payload = self._build_weather_aggregate_payload(message, normalized_device_type)
+            topic_builder = topics.psdk_weather
+        else:
+            payload = message.model_dump_json()
+            topic_builder = lambda prefix: topics.psdk(prefix, message.device_type)
+
+        for target in self._targets.values():
+            target.publish_json(topic_builder(target.config.topic), payload, qos=0)
+
     @property
     def is_connected(self) -> bool:
         return any(target.is_connected for target in self._targets.values())
@@ -291,3 +309,53 @@ class MqttClient:
             name: target.status_snapshot()
             for name, target in self._targets.items()
         }
+
+    def _build_weather_aggregate_payload(self, message: PsdkDataMessage, normalized_device_type: str) -> str:
+        current_payload = message.model_dump(mode="json")
+
+        with self._psdk_lock:
+            if normalized_device_type == "weather":
+                self._latest_weather_payload = current_payload
+            elif normalized_device_type == "visibility":
+                self._latest_visibility_payload = current_payload
+
+            weather_payload = deepcopy(self._latest_weather_payload)
+            visibility_payload = deepcopy(self._latest_visibility_payload)
+
+        merged_payload = weather_payload or self._create_weather_fallback_payload(current_payload)
+        merged_payload["device_type"] = "weather"
+        merged_payload["trigger_device_type"] = normalized_device_type
+        merged_payload["visibility_payload"] = visibility_payload
+        merged_payload["raw_payload"] = self._merge_raw_payload(
+            merged_payload.get("raw_payload"),
+            visibility_payload,
+        )
+        return json.dumps(merged_payload, ensure_ascii=False)
+
+    def _create_weather_fallback_payload(self, current_payload: dict[str, Any]) -> dict[str, Any]:
+        fallback = deepcopy(current_payload)
+        fallback["device_type"] = "weather"
+        fallback["data"] = ""
+        fallback["parsed_data"] = None
+        fallback["warnings"] = []
+
+        raw_payload = dict(fallback.get("raw_payload") or {})
+        raw_payload["device_type"] = "weather"
+        fallback["raw_payload"] = raw_payload or None
+        return fallback
+
+    def _merge_raw_payload(
+        self,
+        raw_payload: Optional[dict[str, Any]],
+        visibility_payload: Optional[dict[str, Any]],
+    ) -> Optional[dict[str, Any]]:
+        merged = dict(raw_payload or {})
+        merged["visibility_payload"] = (
+            deepcopy(visibility_payload.get("raw_payload"))
+            if visibility_payload and visibility_payload.get("raw_payload") is not None
+            else None
+        )
+        return merged or None
+
+    def _normalize_device_type(self, device_type: Any) -> str:
+        return str(device_type or "").strip().lower() or "unknown"
