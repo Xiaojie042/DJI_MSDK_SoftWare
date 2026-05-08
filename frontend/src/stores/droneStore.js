@@ -117,20 +117,41 @@ const findLatestRawStreamData = (frames = [], matcher = () => true) => {
   return null
 }
 
+const findLastRecordIndexAtOrBefore = (records = [], targetTimestamp) => {
+  if (!Array.isArray(records) || records.length === 0) {
+    return -1
+  }
+
+  const targetSeconds = parseTimestampToSeconds(targetTimestamp, Number.POSITIVE_INFINITY)
+  let left = 0
+  let right = records.length - 1
+  let result = -1
+
+  while (left <= right) {
+    const mid = Math.floor((left + right) / 2)
+    const midTimestamp = getRecordTimestampSeconds(records[mid], Number.POSITIVE_INFINITY)
+
+    if (midTimestamp <= targetSeconds) {
+      result = mid
+      left = mid + 1
+    } else {
+      right = mid - 1
+    }
+  }
+
+  return result
+}
+
 const findLatestRecordAtOrBefore = (records = [], targetTimestamp, matcher = () => true) => {
   if (!Array.isArray(records) || records.length === 0) {
     return null
   }
 
-  const targetSeconds = parseTimestampToSeconds(targetTimestamp, Number.POSITIVE_INFINITY)
+  const startIndex = findLastRecordIndexAtOrBefore(records, targetTimestamp)
 
-  for (let index = records.length - 1; index >= 0; index -= 1) {
+  for (let index = startIndex; index >= 0; index -= 1) {
     const candidate = records[index]
-    if (!matcher(candidate)) {
-      continue
-    }
-
-    if (getRecordTimestampSeconds(candidate, Number.POSITIVE_INFINITY) <= targetSeconds) {
+    if (matcher(candidate)) {
       return candidate
     }
   }
@@ -339,6 +360,7 @@ const createDefaultState = () => ({
   flightSessionTracks: {},
   flightReplayFrames: {},
   flightReplay: createDefaultReplayState(),
+  droneRecenterRequestId: 0,
   localCacheMeta: {
     enabled: true,
     lastSavedAt: null
@@ -1157,6 +1179,9 @@ export const useDroneStore = defineStore('drone', {
     clearCurrentTrack() {
       this.flightTrack = []
       schedulePersistence(this)
+    },
+    requestDroneRecenter() {
+      this.droneRecenterRequestId += 1
     },
     async openFlightHistoryPanel() {
       this.flightHistoryPanelOpen = true

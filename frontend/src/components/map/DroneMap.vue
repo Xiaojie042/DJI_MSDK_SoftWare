@@ -14,6 +14,7 @@ const store = useDroneStore()
 const zoom = ref(16)
 const DEFAULT_MAP_CENTER = [31.2304, 121.4737]
 const mapCenter = ref([...DEFAULT_MAP_CENTER])
+const mapRef = ref(null)
 const liveAutoFollowEnabled = ref(true)
 const mapOptions = {
   preferCanvas: true
@@ -66,16 +67,86 @@ const replayPosition = computed(() => {
 })
 
 const trackPoints = computed(() => store.flightTrack)
-const sampleTrackPoints = (points, maxPoints) => {
-  if (!Array.isArray(points) || points.length <= maxPoints) {
-    return points || []
+const replayFrames = computed(() => store.activeFlightReplayFrames)
+const sampleTrackPoints = (points, maxPoints, { excludeLast = false } = {}) => {
+  if (!Array.isArray(points) || points.length === 0 || maxPoints <= 0) {
+    return []
   }
 
-  const step = Math.ceil(points.length / maxPoints)
-  const sampled = points.filter((_, index) => index === 0 || index === points.length - 1 || index % step === 0)
+  const lastAvailableIndex = points.length - (excludeLast ? 2 : 1)
+  if (lastAvailableIndex < 0) {
+    return []
+  }
 
-  if (sampled[sampled.length - 1] !== points[points.length - 1]) {
-    sampled.push(points[points.length - 1])
+  const candidateCount = lastAvailableIndex + 1
+  if (candidateCount <= maxPoints) {
+    return points.slice(0, lastAvailableIndex + 1)
+  }
+
+  if (maxPoints === 1) {
+    return [points[0]]
+  }
+
+  const sampled = []
+  const denominator = maxPoints - 1
+  let previousIndex = -1
+
+  for (let sampleIndex = 0; sampleIndex < maxPoints; sampleIndex += 1) {
+    const pointIndex = Math.round((sampleIndex * lastAvailableIndex) / denominator)
+    if (pointIndex === previousIndex) {
+      continue
+    }
+
+    sampled.push(points[pointIndex])
+    previousIndex = pointIndex
+  }
+
+  return sampled
+}
+
+const sampleReplayTrackPoints = (frames, frameIndex, maxPoints, { excludeLast = false } = {}) => {
+  if (!Array.isArray(frames) || frames.length === 0 || maxPoints <= 0) {
+    return []
+  }
+
+  const safeFrameIndex = Math.max(Math.min(Math.round(Number(frameIndex) || 0), frames.length - 1), 0)
+  const lastAvailableIndex = safeFrameIndex - (excludeLast ? 1 : 0)
+  if (lastAvailableIndex < 0) {
+    return []
+  }
+
+  const candidateCount = lastAvailableIndex + 1
+  if (candidateCount <= maxPoints) {
+    const sampled = []
+    for (let index = 0; index <= lastAvailableIndex; index += 1) {
+      const point = frames[index]?.trackPoint
+      if (point) {
+        sampled.push(point)
+      }
+    }
+    return sampled
+  }
+
+  if (maxPoints === 1) {
+    const firstPoint = frames[0]?.trackPoint
+    return firstPoint ? [firstPoint] : []
+  }
+
+  const sampled = []
+  const denominator = maxPoints - 1
+  let previousIndex = -1
+
+  for (let sampleIndex = 0; sampleIndex < maxPoints; sampleIndex += 1) {
+    const currentIndex = Math.round((sampleIndex * lastAvailableIndex) / denominator)
+    if (currentIndex === previousIndex) {
+      continue
+    }
+
+    const point = frames[currentIndex]?.trackPoint
+    if (point) {
+      sampled.push(point)
+    }
+    previousIndex = currentIndex
   }
 
   return sampled
@@ -83,15 +154,18 @@ const sampleTrackPoints = (points, maxPoints) => {
 
 const sampledTrackPoints = computed(() => sampleTrackPoints(trackPoints.value, LIVE_TRACK_RENDER_LIMIT))
 const liveTrackMarkerPoints = computed(() =>
-  sampleTrackPoints(trackPoints.value, LIVE_TRACK_POINT_RENDER_LIMIT).slice(0, -1)
+  sampleTrackPoints(trackPoints.value, LIVE_TRACK_POINT_RENDER_LIMIT, { excludeLast: true })
 )
-const isReplayActive = computed(() => Boolean(store.flightReplay.activeFlightId && store.activeFlightReplayFrames.length))
+const isReplayActive = computed(() => Boolean(store.flightReplay.activeFlightId && replayFrames.value.length))
 const pathCoords = computed(() => sampledTrackPoints.value.map((point) => [point.lat, point.lng]))
 const replayTrackCoords = computed(() =>
-  sampleTrackPoints(store.activeFlightReplayTrack, LIVE_TRACK_RENDER_LIMIT).map((point) => [point.lat, point.lng])
+  sampleReplayTrackPoints(replayFrames.value, store.flightReplay.frameIndex, LIVE_TRACK_RENDER_LIMIT)
+    .map((point) => [point.lat, point.lng])
 )
 const replayTrackMarkerPoints = computed(() =>
-  sampleTrackPoints(store.activeFlightReplayTrack, LIVE_TRACK_POINT_RENDER_LIMIT).slice(0, -1)
+  sampleReplayTrackPoints(replayFrames.value, store.flightReplay.frameIndex, LIVE_TRACK_POINT_RENDER_LIMIT, {
+    excludeLast: true
+  })
 )
 const takeoffPoint = computed(() => {
   if (isReplayActive.value) {
@@ -140,6 +214,51 @@ const dronePosition = computed(() =>
       : null
 )
 
+const hasSamePosition = (left, right) =>
+  Array.isArray(left) &&
+  Array.isArray(right) &&
+  left.length === right.length &&
+  left.every((value, index) => value === right[index])
+
+const syncMapCenter = (nextPosition) => {
+  if (!nextPosition || hasSamePosition(mapCenter.value, nextPosition)) {
+    return
+  }
+
+  mapCenter.value = [...nextPosition]
+}
+
+const centerMapOnPosition = (nextPosition) => {
+  if (!nextPosition) {
+    return
+  }
+
+  const targetZoom = Math.max(Number(zoom.value) || 16, 16)
+  zoom.value = targetZoom
+  mapCenter.value = [...nextPosition]
+
+  const leafletMap = mapRef.value?.leafletObject
+  if (leafletMap?.setView) {
+    leafletMap.setView(nextPosition, targetZoom, {
+      animate: true,
+      duration: 0.35
+    })
+  }
+}
+
+const recenterDrone = () => {
+  const targetPosition = isReplayActive.value ? replayPosition.value : dronePosition.value
+  if (!targetPosition) {
+    return
+  }
+
+  if (!isReplayActive.value) {
+    liveAutoFollowEnabled.value = true
+  }
+
+  centerMapOnPosition(targetPosition)
+}
+
 watch(
   dronePosition,
   (nextPosition) => {
@@ -147,7 +266,7 @@ watch(
       return
     }
 
-    mapCenter.value = [...nextPosition]
+    syncMapCenter(nextPosition)
   },
   { immediate: true }
 )
@@ -159,7 +278,7 @@ watch(
       return
     }
 
-    mapCenter.value = [...nextPosition]
+    syncMapCenter(nextPosition)
   },
   { immediate: true }
 )
@@ -169,16 +288,23 @@ watch(
   (active) => {
     if (active) {
       if (replayPosition.value) {
-        mapCenter.value = [...replayPosition.value]
+        syncMapCenter(replayPosition.value)
       }
       return
     }
 
     if (dronePosition.value && liveAutoFollowEnabled.value) {
-      mapCenter.value = [...dronePosition.value]
+      syncMapCenter(dronePosition.value)
     }
   },
   { immediate: true }
+)
+
+watch(
+  () => store.droneRecenterRequestId,
+  () => {
+    recenterDrone()
+  }
 )
 
 const handleMapDragStart = () => {
@@ -406,6 +532,7 @@ const droneIcon = computed(() => {
 <template>
   <div class="map-shell">
     <l-map
+      ref="mapRef"
       v-model:center="mapCenter"
       v-model:zoom="zoom"
       :options="mapOptions"
