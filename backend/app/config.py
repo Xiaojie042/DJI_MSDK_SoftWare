@@ -44,6 +44,14 @@ class Settings(BaseSettings):
         default="./data/runtime_config.json",
         description="Runtime config JSON path",
     )
+    live_config_path: str = Field(
+        default="./data/live_config.json",
+        description="Live forwarding config JSON path",
+    )
+    live_log_path: str = Field(
+        default="./data/live/live_gateway.log",
+        description="Live forwarding process log path",
+    )
 
     # Logging
     log_level: str = Field(default="INFO", description="Log level")

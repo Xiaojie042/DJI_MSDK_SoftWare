@@ -13,6 +13,7 @@ from app.config import settings
 from app.mqtt.client import MqttClient
 from app.runtime_config import RuntimeConfigService
 from app.services.dispatcher import DataDispatcher
+from app.services.live_gateway import LiveGatewayService
 from app.services.storage import StorageService
 from app.tcp_server.server import DroneTcpServer
 from app.utils.logger import get_logger, setup_logging
@@ -24,6 +25,7 @@ mqtt_client = MqttClient()
 ws_manager = WebSocketManager()
 storage_service = StorageService()
 runtime_config_service = RuntimeConfigService(tcp_server=tcp_server, mqtt_client=mqtt_client)
+live_gateway_service = LiveGatewayService()
 dispatcher: Optional[DataDispatcher] = None
 
 logger = get_logger(__name__)
@@ -45,6 +47,9 @@ async def lifespan(app: FastAPI):
     mqtt_client.connect()
     logger.info("MQTT targets initialized")
 
+    await live_gateway_service.initialize()
+    logger.info("Live gateway initialized")
+
     dispatcher = DataDispatcher(
         mqtt_client=mqtt_client,
         ws_manager=ws_manager,
@@ -65,6 +70,7 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("Stopping DJI drone monitor backend")
+    await live_gateway_service.shutdown()
     await tcp_server.stop()
     mqtt_client.disconnect()
     await storage_service.close()

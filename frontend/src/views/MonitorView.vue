@@ -4,6 +4,7 @@ import TopBar from '@/components/dashboard/TopBar.vue'
 import RawDataTerminal from '@/components/dashboard/RawDataTerminal.vue'
 import TelemetryPanel from '@/components/dashboard/TelemetryPanel.vue'
 import WeatherSidebar from '@/components/dashboard/WeatherSidebar.vue'
+import LiveForwardPanel from '@/components/dashboard/LiveForwardPanel.vue'
 import DroneMap from '@/components/map/DroneMap.vue'
 
 useWebSocket()
@@ -19,6 +20,10 @@ useWebSocket()
 
         <aside class="weather-floating">
           <WeatherSidebar />
+        </aside>
+
+        <aside class="live-forward-floating">
+          <LiveForwardPanel />
         </aside>
       </section>
     </main>
@@ -66,13 +71,21 @@ useWebSocket()
   pointer-events: auto;
 }
 
+.live-forward-floating {
+  position: absolute;
+  left: 0.7rem;
+  bottom: 0.7rem;
+  z-index: 470;
+  pointer-events: auto;
+}
+
 .bottom-deck {
-  flex: 0 0 150px;
-  height: 150px;
-  max-height: 150px;
+  flex: 0 0 104px;
+  height: 104px;
+  max-height: 104px;
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(340px, 0.95fr);
-  gap: 1rem;
+  gap: 0.8rem;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
@@ -85,7 +98,7 @@ useWebSocket()
 
 .bottom-deck > * {
   min-height: 0;
-  height: 150px;
+  height: 104px;
 }
 
 @media (max-width: 1100px) {
@@ -94,6 +107,11 @@ useWebSocket()
     right: 0.65rem;
     transform: scale(0.92);
     transform-origin: top right;
+  }
+
+  .live-forward-floating {
+    transform: scale(0.94);
+    transform-origin: bottom left;
   }
 }
 
@@ -111,6 +129,14 @@ useWebSocket()
 
   .weather-floating {
     display: none;
+  }
+
+  .live-forward-floating {
+    position: fixed;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    z-index: 9998;
   }
 }
 </style>

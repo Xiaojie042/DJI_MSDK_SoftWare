@@ -1,0 +1,7 @@
+*
+!.gitignore
+!README.md
+!zlmediakit/
+!zlmediakit/README.md
+!gb28181-bridge/
+!gb28181-bridge/README.md

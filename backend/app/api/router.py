@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -22,6 +22,13 @@ from app.api.schemas import (
     SystemStatusResponse,
 )
 from app.config import settings
+from app.services.live_gateway import (
+    Gb28181StatusResponse,
+    LiveConfigResponse,
+    LiveGatewayError,
+    LiveLogsResponse,
+    RtmpStatusResponse,
+)
 
 router = APIRouter(prefix="/api", tags=["API"])
 _start_time = time.time()
@@ -43,6 +50,12 @@ def get_runtime_config_service():
     from app.main import runtime_config_service
 
     return runtime_config_service
+
+
+def get_live_gateway_service():
+    from app.main import live_gateway_service
+
+    return live_gateway_service
 
 
 def get_ws_manager():
@@ -165,3 +178,59 @@ async def delete_flight(flight_id: str) -> DeleteFlightSessionResponse:
         raise HTTPException(status_code=404, detail=f"Flight session '{flight_id}' not found")
 
     return DeleteFlightSessionResponse(flight_id=flight_id, deleted=True)
+
+
+@router.get("/live/config", response_model=LiveConfigResponse)
+async def get_live_config() -> LiveConfigResponse:
+    return get_live_gateway_service().get_config_response()
+
+
+@router.post("/live/config", response_model=LiveConfigResponse)
+async def update_live_config(payload: dict[str, Any]) -> LiveConfigResponse:
+    try:
+        return await get_live_gateway_service().update_config(payload)
+    except LiveGatewayError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/live/rtmp/start", response_model=RtmpStatusResponse)
+async def start_rtmp_service() -> RtmpStatusResponse:
+    try:
+        return await get_live_gateway_service().start_rtmp()
+    except LiveGatewayError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/live/rtmp/stop", response_model=RtmpStatusResponse)
+async def stop_rtmp_service() -> RtmpStatusResponse:
+    return await get_live_gateway_service().stop_rtmp()
+
+
+@router.get("/live/rtmp/status", response_model=RtmpStatusResponse)
+async def get_rtmp_status() -> RtmpStatusResponse:
+    return get_live_gateway_service().get_rtmp_status()
+
+
+@router.post("/live/gb28181/start", response_model=Gb28181StatusResponse)
+async def start_gb28181_forwarding() -> Gb28181StatusResponse:
+    try:
+        return await get_live_gateway_service().start_gb28181()
+    except LiveGatewayError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/live/gb28181/stop", response_model=Gb28181StatusResponse)
+async def stop_gb28181_forwarding() -> Gb28181StatusResponse:
+    return await get_live_gateway_service().stop_gb28181()
+
+
+@router.get("/live/gb28181/status", response_model=Gb28181StatusResponse)
+async def get_gb28181_status() -> Gb28181StatusResponse:
+    return get_live_gateway_service().get_gb28181_status()
+
+
+@router.get("/live/logs", response_model=LiveLogsResponse)
+async def get_live_logs(
+    limit: int = Query(default=200, ge=1, le=500, description="Max live gateway log lines"),
+) -> LiveLogsResponse:
+    return get_live_gateway_service().get_logs(limit=limit)
