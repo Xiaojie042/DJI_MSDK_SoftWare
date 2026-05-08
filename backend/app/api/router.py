@@ -27,6 +27,7 @@ from app.services.live_gateway import (
     LiveConfigResponse,
     LiveGatewayError,
     LiveLogsResponse,
+    LiveRestartResponse,
     RtmpStatusResponse,
 )
 
@@ -209,6 +210,14 @@ async def stop_rtmp_service() -> RtmpStatusResponse:
 @router.get("/live/rtmp/status", response_model=RtmpStatusResponse)
 async def get_rtmp_status() -> RtmpStatusResponse:
     return get_live_gateway_service().get_rtmp_status()
+
+
+@router.post("/live/restart", response_model=LiveRestartResponse)
+async def restart_live_services() -> LiveRestartResponse:
+    try:
+        return await get_live_gateway_service().restart_related_services()
+    except LiveGatewayError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/live/gb28181/start", response_model=Gb28181StatusResponse)

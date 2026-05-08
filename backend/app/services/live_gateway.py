@@ -436,6 +436,13 @@ class LiveLogsResponse(BaseModel):
     limit: int
 
 
+class LiveRestartResponse(BaseModel):
+    rtmp: RtmpStatusResponse
+    gb28181: Gb28181StatusResponse
+    restarted_gb28181: bool = False
+    message: str = ""
+
+
 class _SafeFormatDict(dict):
     def __missing__(self, key: str) -> str:
         return "{" + key + "}"
@@ -744,6 +751,37 @@ class LiveGatewayService:
             else:
                 self._append_log("gb28181", "No managed GB28181 bridge process is running")
             return self.get_gb28181_status()
+
+    async def restart_related_services(self) -> LiveRestartResponse:
+        """Restart the live forwarding chain in a safe order."""
+        previous_gb_status = self.get_gb28181_status()
+        should_restart_gb = previous_gb_status.process_running
+        self._append_log("system", "Restarting live services: stop GB28181, restart RTMP, then restore GB28181")
+
+        await self.stop_gb28181()
+        await self.stop_rtmp()
+        await asyncio.sleep(0.35)
+
+        rtmp_status = await self.start_rtmp()
+        gb_status = self.get_gb28181_status()
+        restarted_gb = False
+        message = "RTMP service restarted. GB28181 was not running before restart."
+
+        if should_restart_gb:
+            try:
+                gb_status = await self.start_gb28181()
+                restarted_gb = gb_status.process_running
+                message = "RTMP service restarted. GB28181 forwarding restart requested."
+            except LiveGatewayError as exc:
+                message = f"RTMP service restarted, but GB28181 restart failed: {exc}"
+                self._append_log("gb28181", message, "ERROR")
+
+        return LiveRestartResponse(
+            rtmp=rtmp_status,
+            gb28181=gb_status,
+            restarted_gb28181=restarted_gb,
+            message=message,
+        )
 
     def get_gb28181_status(self) -> Gb28181StatusResponse:
         self._gb_process.refresh_exit_state()

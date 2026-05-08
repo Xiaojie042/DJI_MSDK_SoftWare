@@ -3,6 +3,21 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { useRuntimeConfigStore } from '@/stores/runtimeConfigStore'
 
 const configStore = useRuntimeConfigStore()
+const PREVIEW_SIZE_STORAGE_KEY = 'drone-monitor:live-preview-width:v1'
+const PREVIEW_DEFAULT_WIDTH = 450
+const PREVIEW_MIN_WIDTH = 320
+const PREVIEW_MAX_WIDTH = 960
+const PREVIEW_WIDTH_STEP = 80
+const PREVIEW_ASPECT_RATIO = 16 / 9
+
+const readStoredPreviewWidth = () => {
+  if (typeof window === 'undefined') {
+    return PREVIEW_DEFAULT_WIDTH
+  }
+
+  const parsed = Number(window.localStorage.getItem(PREVIEW_SIZE_STORAGE_KEY))
+  return Number.isFinite(parsed) ? parsed : PREVIEW_DEFAULT_WIDTH
+}
 
 const expanded = ref(false)
 const errorMessage = ref('')
@@ -17,6 +32,7 @@ const previewMinimized = ref(false)
 const previewPlaying = ref(true)
 const previewError = ref('')
 const previewMode = ref('flv')
+const previewWidth = ref(readStoredPreviewWidth())
 const previewPosition = reactive({
   x: 24,
   y: 88
@@ -31,6 +47,7 @@ const loading = reactive({
   save: false,
   rtmp: false,
   gb: false,
+  restart: false,
   refresh: false
 })
 
@@ -40,6 +57,7 @@ let flvjsModule = null
 let rtcPeerConnection = null
 let rtcRemoteStream = null
 let previewDrag = null
+let previewResize = null
 let previewFallbackTimer = null
 
 const createDefaultConfig = () => ({
@@ -189,6 +207,31 @@ const stopRtmp = async () => postAction('/api/live/rtmp/stop', 'rtmp', 'RTMP 服
 const startGb = async () => postAction('/api/live/gb28181/start', 'gb', 'GB28181 转发启动请求已发送')
 const stopGb = async () => postAction('/api/live/gb28181/stop', 'gb', 'GB28181 转发停止请求已发送')
 
+const restartLiveServices = async () => {
+  loading.restart = true
+  infoMessage.value = ''
+  errorMessage.value = ''
+  try {
+    const payload = await requestJson('/api/live/restart', { method: 'POST' })
+    if (payload?.rtmp) {
+      rtmpStatus.value = payload.rtmp
+    }
+    if (payload?.gb28181) {
+      gbStatus.value = payload.gb28181
+    }
+    infoMessage.value = payload?.message || '直播相关服务重启请求已发送'
+    await refreshStatus()
+    if (previewVisible.value && !previewMinimized.value) {
+      await initPreviewPlayer()
+    }
+  } catch (error) {
+    errorMessage.value = `重启直播服务失败：${error.message}`
+    await refreshStatus()
+  } finally {
+    loading.restart = false
+  }
+}
+
 const generateSsrc = () => {
   draft.gb28181.ssrc = String(Math.floor(1000000000 + Math.random() * 9000000000))
 }
@@ -255,6 +298,40 @@ const lanIp = computed(() => meta.lanIp || rtmpStatus.value?.lan_ip || '127.0.0.
 const hasRtmpStream = computed(() => Boolean(rtmpStatus.value?.has_drone_stream))
 const rtmpRunning = computed(() => Boolean(rtmpStatus.value?.running))
 const gbRunning = computed(() => Boolean(gbStatus.value?.process_running))
+const liveActionBusy = computed(() => loading.rtmp || loading.gb || loading.restart)
+
+const numberOf = (value) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+const gbMediaActive = computed(() => {
+  const bitrate = numberOf(gbStatus.value?.bitrate_kbps || rtmpStatus.value?.bitrate_kbps)
+  const fps = numberOf(gbStatus.value?.fps ?? rtmpStatus.value?.fps)
+  return bitrate > 0 || fps > 0
+})
+
+const gbStreamingLocallyConfirmed = computed(() => {
+  const rawStatus = gbStatus.value?.streaming_status || ''
+  return gbRunning.value
+    && gbStatus.value?.registration_status === 'registered'
+    && hasRtmpStream.value
+    && gbMediaActive.value
+    && ['streaming', 'negotiating'].includes(rawStatus)
+})
+
+const effectiveGbStreamingStatus = computed(() => {
+  const rawStatus = gbStatus.value?.streaming_status || ''
+  if (rawStatus === 'failed') return rawStatus
+  if (gbStreamingLocallyConfirmed.value) return 'streaming'
+  return rawStatus
+})
+
+const isAuxiliaryMediaConnectError = (message = '') => (
+  /sua_init_media_tcp/i.test(message)
+  && /connect to/i.test(message)
+  && /fail/i.test(message)
+)
 
 const rtmpTone = computed(() => {
   if (hasRtmpStream.value) return 'good'
@@ -271,9 +348,10 @@ const gbRegistrationTone = computed(() => {
   return 'idle'
 })
 const gbStreamingTone = computed(() => {
-  const status = gbStatus.value?.streaming_status || ''
+  const status = effectiveGbStreamingStatus.value
   if (status === 'streaming') return 'good'
   if (status === 'waiting_rtmp' || status === 'waiting_invite' || status === 'negotiating') return 'warn'
+  if (status === 'failed') return 'bad'
   return 'idle'
 })
 
@@ -312,12 +390,68 @@ const fpsLabel = computed(() => {
 })
 const statusWarningText = computed(() => (
   gbStatus.value?.process_warning
-  || gbStatus.value?.recent_error
+  || (() => {
+    const recentError = gbStatus.value?.recent_error || ''
+    if (recentError && gbStreamingLocallyConfirmed.value && isAuxiliaryMediaConnectError(recentError)) {
+      return `国标视频已检测到有效媒体数据；最近一次辅助 TCP 媒体端口连接失败：${recentError}`
+    }
+    return recentError
+  })()
   || rtmpStatus.value?.last_error
   || ''
 ))
 
+const maxPreviewWidth = () => {
+  if (typeof window === 'undefined') {
+    return PREVIEW_DEFAULT_WIDTH
+  }
+
+  return Math.min(PREVIEW_MAX_WIDTH, Math.max(PREVIEW_MIN_WIDTH, window.innerWidth - 24))
+}
+
+const clampPreviewWidth = (value) => {
+  const numeric = Number(value)
+  const safeValue = Number.isFinite(numeric) ? numeric : PREVIEW_DEFAULT_WIDTH
+  return Math.round(Math.min(Math.max(safeValue, PREVIEW_MIN_WIDTH), maxPreviewWidth()))
+}
+
+const savePreviewWidth = () => {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  window.localStorage.setItem(PREVIEW_SIZE_STORAGE_KEY, String(clampPreviewWidth(previewWidth.value)))
+}
+
+const setPreviewWidth = (nextWidth, { persist = true } = {}) => {
+  previewWidth.value = clampPreviewWidth(nextWidth)
+  if (persist) {
+    savePreviewWidth()
+  }
+  clampPreviewPosition()
+}
+
+const resizePreviewBy = (deltaWidth) => {
+  setPreviewWidth(previewWidth.value + deltaWidth)
+}
+
+const previewDimensions = computed(() => {
+  if (previewMinimized.value) {
+    return {
+      width: 220,
+      height: 46
+    }
+  }
+
+  const width = clampPreviewWidth(previewWidth.value)
+  return {
+    width,
+    height: Math.round(width / PREVIEW_ASPECT_RATIO)
+  }
+})
+
 const previewStyle = computed(() => ({
+  width: previewMinimized.value ? '220px' : `${previewDimensions.value.width}px`,
   transform: `translate3d(${previewPosition.x}px, ${previewPosition.y}px, 0)`
 }))
 
@@ -641,15 +775,14 @@ const clampPreviewPosition = () => {
   if (typeof window === 'undefined') {
     return
   }
-  const width = previewMinimized.value ? 220 : 450
-  const height = previewMinimized.value ? 46 : 253
+  const { width, height } = previewDimensions.value
   previewPosition.x = Math.min(Math.max(12, previewPosition.x), Math.max(12, window.innerWidth - width - 12))
   previewPosition.y = Math.min(Math.max(12, previewPosition.y), Math.max(12, window.innerHeight - height - 12))
 }
 
 const openPreview = async () => {
   if (typeof window !== 'undefined' && !previewVisible.value) {
-    previewPosition.x = Math.max(16, window.innerWidth - 482)
+    previewPosition.x = Math.max(16, window.innerWidth - previewDimensions.value.width - 32)
     previewPosition.y = 88
   }
   previewVisible.value = true
@@ -732,6 +865,43 @@ const stopPreviewDrag = () => {
   window.removeEventListener('pointermove', handlePreviewDrag)
 }
 
+const startPreviewResize = (event) => {
+  if (previewMinimized.value || (event.button !== undefined && event.button !== 0)) {
+    return
+  }
+
+  event.preventDefault()
+  event.stopPropagation()
+  previewResize = {
+    startX: event.clientX,
+    startY: event.clientY,
+    originWidth: previewWidth.value
+  }
+  window.addEventListener('pointermove', handlePreviewResize)
+  window.addEventListener('pointerup', stopPreviewResize, { once: true })
+}
+
+const handlePreviewResize = (event) => {
+  if (!previewResize) {
+    return
+  }
+
+  const deltaX = event.clientX - previewResize.startX
+  const deltaY = (event.clientY - previewResize.startY) * PREVIEW_ASPECT_RATIO
+  const delta = Math.abs(deltaX) >= Math.abs(deltaY) ? deltaX : deltaY
+  setPreviewWidth(previewResize.originWidth + delta, { persist: false })
+}
+
+const stopPreviewResize = () => {
+  if (!previewResize) {
+    return
+  }
+
+  previewResize = null
+  savePreviewWidth()
+  window.removeEventListener('pointermove', handlePreviewResize)
+}
+
 watch(
   logs,
   async () => {
@@ -767,6 +937,7 @@ onUnmounted(() => {
   }
   window.removeEventListener('resize', clampPreviewPosition)
   window.removeEventListener('pointermove', handlePreviewDrag)
+  window.removeEventListener('pointermove', handlePreviewResize)
   destroyPreviewPlayer()
 })
 </script>
@@ -779,6 +950,15 @@ onUnmounted(() => {
         <span class="toggle-subtitle">{{ labelOf(rtmpStatus?.service_source) }} · {{ hasRtmpStream ? '已收流' : '未收流' }}</span>
       </button>
       <div class="live-forward__header-actions">
+        <button
+          type="button"
+          class="live-forward__restart"
+          :disabled="liveActionBusy"
+          title="按顺序重启 RTMP 与 GB28181 转发服务"
+          @click.stop="restartLiveServices"
+        >
+          {{ loading.restart ? '重启中' : '重启服务' }}
+        </button>
         <span class="state-dot" :class="`state-dot--${rtmpTone}`"></span>
         <button
           v-if="expanded"
@@ -821,7 +1001,7 @@ onUnmounted(() => {
         </div>
         <div class="status-cell" :class="`status-cell--${gbStreamingTone}`">
           <span>国标推流</span>
-          <strong>{{ labelOf(gbStatus?.streaming_status) }}</strong>
+          <strong>{{ labelOf(effectiveGbStreamingStatus) }}</strong>
         </div>
       </div>
 
@@ -841,10 +1021,10 @@ onUnmounted(() => {
           <header>
             <strong>RTMP 接收</strong>
             <div class="button-row">
-              <button type="button" class="control-btn control-btn--primary" :disabled="loading.rtmp" @click="startRtmp">
+              <button type="button" class="control-btn control-btn--primary" :disabled="liveActionBusy" @click="startRtmp">
                 启动 RTMP
               </button>
-              <button type="button" class="control-btn" :disabled="loading.rtmp" @click="stopRtmp">
+              <button type="button" class="control-btn" :disabled="liveActionBusy" @click="stopRtmp">
                 停止 RTMP
               </button>
             </div>
@@ -883,10 +1063,10 @@ onUnmounted(() => {
           <header>
             <strong>GB28181 转发</strong>
             <div class="button-row">
-              <button type="button" class="control-btn control-btn--primary" :disabled="loading.gb" @click="startGb">
+              <button type="button" class="control-btn control-btn--primary" :disabled="liveActionBusy" @click="startGb">
                 开始转发
               </button>
-              <button type="button" class="control-btn" :disabled="loading.gb" @click="stopGb">
+              <button type="button" class="control-btn" :disabled="liveActionBusy" @click="stopGb">
                 停止转发
               </button>
             </div>
@@ -1025,6 +1205,26 @@ onUnmounted(() => {
           <button v-if="!previewMinimized && previewMode === 'flv'" type="button" @click="startNativePreview">
             fMP4
           </button>
+          <button
+            v-if="!previewMinimized"
+            type="button"
+            class="live-preview__size-btn"
+            title="缩小预览"
+            aria-label="缩小预览"
+            @click="resizePreviewBy(-PREVIEW_WIDTH_STEP)"
+          >
+            -
+          </button>
+          <button
+            v-if="!previewMinimized"
+            type="button"
+            class="live-preview__size-btn"
+            title="放大预览"
+            aria-label="放大预览"
+            @click="resizePreviewBy(PREVIEW_WIDTH_STEP)"
+          >
+            +
+          </button>
           <button v-if="!previewMinimized" type="button" @click="togglePreviewPlayback">
             {{ previewPlaying ? '暂停' : '继续' }}
           </button>
@@ -1041,6 +1241,14 @@ onUnmounted(() => {
           {{ previewStatusText }}
         </div>
       </div>
+      <button
+        v-if="!previewMinimized"
+        type="button"
+        class="live-preview__resize-handle"
+        title="拖动调整预览大小"
+        aria-label="拖动调整预览大小"
+        @pointerdown="startPreviewResize"
+      ></button>
     </section>
   </Teleport>
 </template>
@@ -1088,6 +1296,29 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
+}
+
+.live-forward__restart {
+  min-height: 32px;
+  padding: 0 0.68rem;
+  border-radius: 999px;
+  border: 1px solid rgba(56, 189, 248, 0.26);
+  background: rgba(14, 165, 233, 0.16);
+  color: #e0f2fe;
+  font-size: 0.7rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.live-forward__restart:hover:not(:disabled) {
+  border-color: rgba(56, 189, 248, 0.44);
+  background: rgba(14, 165, 233, 0.24);
+}
+
+.live-forward__restart:disabled {
+  cursor: wait;
+  opacity: 0.62;
 }
 
 .toggle-title {
@@ -1535,6 +1766,12 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
+.live-preview__actions .live-preview__size-btn {
+  width: 28px;
+  padding: 0;
+  font-size: 0.82rem;
+}
+
 .live-preview__actions button:hover {
   border-color: rgba(56, 189, 248, 0.36);
   background: rgba(30, 41, 59, 0.9);
@@ -1571,6 +1808,28 @@ onUnmounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.live-preview__resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background:
+    linear-gradient(135deg, transparent 0 46%, rgba(125, 211, 252, 0.76) 48% 53%, transparent 55%),
+    linear-gradient(135deg, transparent 0 62%, rgba(125, 211, 252, 0.52) 64% 68%, transparent 70%);
+  cursor: nwse-resize;
+}
+
+.live-preview__resize-handle:hover {
+  background:
+    linear-gradient(135deg, transparent 0 46%, rgba(224, 242, 254, 0.96) 48% 53%, transparent 55%),
+    linear-gradient(135deg, transparent 0 62%, rgba(224, 242, 254, 0.74) 64% 68%, transparent 70%);
 }
 
 @media (max-width: 900px) {
