@@ -5,14 +5,14 @@ import sys
 import time
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 try:
     import pytest
 except ModuleNotFoundError:  # pragma: no cover - direct-script fallback
     from tests import _pytest_compat as pytest
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.models.drone import PsdkDataMessage
 from app.services.psdk_data_parser import calculate_weather_lrc
