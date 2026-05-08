@@ -149,6 +149,11 @@ const needleRotationStyle = computed(() => ({
 
 <template>
   <section class="weather-sidebar glass-panel">
+    <div class="weather-sidebar__toolbar">
+      <span>气象监测</span>
+      <RouterLink to="/weather-charts">气象图表</RouterLink>
+    </div>
+
     <div class="compass-section">
       <div class="compass-circle">
         <svg viewBox="0 0 280 280" class="compass-svg" aria-hidden="true">
@@ -239,8 +244,41 @@ const needleRotationStyle = computed(() => ({
   box-shadow: 0 24px 48px rgba(2, 6, 23, 0.3);
 }
 
+.weather-sidebar__toolbar {
+  flex: 0 0 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.weather-sidebar__toolbar span {
+  color: #94a3b8;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+}
+
+.weather-sidebar__toolbar a {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.58rem;
+  border-radius: 8px;
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  background: rgba(14, 165, 233, 0.12);
+  color: #e0f2fe;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.weather-sidebar__toolbar a:hover {
+  border-color: rgba(125, 211, 252, 0.38);
+  background: rgba(14, 165, 233, 0.2);
+}
+
 .compass-section {
-  flex: 0 0 238px;
+  flex: 0 0 224px;
   display: flex;
   justify-content: center;
   align-items: center;

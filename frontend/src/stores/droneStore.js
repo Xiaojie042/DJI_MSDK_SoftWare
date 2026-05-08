@@ -5,6 +5,8 @@ const LOCAL_CACHE_KEY = 'drone-monitor:telemetry-cache:v1'
 const TRACK_LIMIT = 5000
 const HISTORY_LIMIT = 50
 const RAW_STREAM_LIMIT = 50
+const WEATHER_SERIES_WINDOW_SECONDS = 5 * 60
+const WEATHER_SERIES_LIMIT = 720
 const ALERT_LIMIT = 20
 const TELEMETRY_ARCHIVE_LIMIT = 300
 const REPLAY_DELAY_MIN_MS = 120
@@ -287,6 +289,144 @@ const createLiveFrameCache = (frames = []) => {
   }
 }
 
+const readSeriesMetric = (...values) => {
+  for (const value of values) {
+    if (value === null || value === undefined || value === '' || value === '/' || value === '///') {
+      continue
+    }
+
+    const numeric = Number(value)
+    if (Number.isFinite(numeric)) {
+      return numeric
+    }
+  }
+
+  return null
+}
+
+const hasSeriesMetric = (point = {}) => [
+  point.temperature,
+  point.humidity,
+  point.windDirection,
+  point.windSpeed,
+  point.visibility,
+  point.pressure
+].some((value) => Number.isFinite(value))
+
+const unwrapWeatherSource = (frame) => {
+  const source = frame?.data || frame
+  if (!source || typeof source !== 'object') {
+    return null
+  }
+
+  if (source.type === 'weather' && source.data && typeof source.data === 'object') {
+    return {
+      ...source.data,
+      timestamp: source.data.timestamp ?? source.timestamp
+    }
+  }
+
+  return source
+}
+
+const isDirectWeatherSample = (source = {}) => [
+  source.temperature,
+  source.temperature_c,
+  source.humidity,
+  source.humidity_percent,
+  source.windDirection,
+  source.wind_direction,
+  source.wind_direction_deg,
+  source.windSpeed,
+  source.wind_speed,
+  source.wind_speed_ms,
+  source.visibility,
+  source.visibility_m,
+  source.pressure,
+  source.pressure_hpa
+].some((value) => readSeriesMetric(value) !== null)
+
+const createWeatherSeriesPoint = (frame, fallbackTimestamp = Date.now() / 1000) => {
+  const source = unwrapWeatherSource(frame)
+  if (!source || (source.type !== 'psdk_data' && !isDirectWeatherSample(source))) {
+    return null
+  }
+
+  const parsed = source.parsed_data || {}
+  const timestamp = parseTimestampToSeconds(source.timestamp ?? frame?.timestamp, fallbackTimestamp)
+  const sourceLabel = source.device_type || source.type || source.source || 'weather'
+  const point = {
+    id: `${Math.round(timestamp * 1000)}-${sourceLabel}-${Math.random().toString(16).slice(2, 7)}`,
+    timestamp,
+    timeLabel: formatTelemetryTime(timestamp),
+    source: sourceLabel,
+    temperature: null,
+    humidity: null,
+    windDirection: null,
+    windSpeed: null,
+    visibility: null,
+    pressure: null
+  }
+
+  if (source.device_type === 'weather') {
+    point.temperature = readSeriesMetric(parsed.temperature_c)
+    point.humidity = readSeriesMetric(parsed.humidity_percent)
+    point.windDirection = readSeriesMetric(parsed.true_wind_direction_deg, parsed.relative_wind_direction_deg)
+    point.windSpeed = readSeriesMetric(parsed.true_wind_speed_ms, parsed.relative_wind_speed_ms)
+    point.pressure = readSeriesMetric(parsed.pressure_hpa)
+  } else if (source.device_type === 'visibility') {
+    point.visibility = readSeriesMetric(
+      parsed.visibility_10s_m,
+      parsed.visibility_1min_m,
+      parsed.visibility_10min_m
+    )
+  } else {
+    point.source = source.source || source.type || 'weather'
+    point.temperature = readSeriesMetric(source.temperature, source.temperature_c)
+    point.humidity = readSeriesMetric(source.humidity, source.humidity_percent)
+    point.windDirection = readSeriesMetric(source.windDirection, source.wind_direction, source.wind_direction_deg)
+    point.windSpeed = readSeriesMetric(source.windSpeed, source.wind_speed, source.wind_speed_ms)
+    point.visibility = readSeriesMetric(source.visibility, source.visibility_m)
+    point.pressure = readSeriesMetric(source.pressure, source.pressure_hpa)
+  }
+
+  return hasSeriesMetric(point) ? point : null
+}
+
+const pruneWeatherTimeSeries = (points = []) => {
+  const sortedPoints = points
+    .filter((point) => point && Number.isFinite(Number(point.timestamp)))
+    .sort((left, right) => Number(left.timestamp) - Number(right.timestamp))
+  const latestPoint = sortedPoints[sortedPoints.length - 1]
+
+  if (!latestPoint) {
+    return []
+  }
+
+  const windowStart = Number(latestPoint.timestamp) - WEATHER_SERIES_WINDOW_SECONDS
+  return sortedPoints
+    .filter((point) => Number(point.timestamp) >= windowStart)
+    .slice(-WEATHER_SERIES_LIMIT)
+}
+
+const buildWeatherTimeSeries = (frames = []) =>
+  pruneWeatherTimeSeries(
+    frames
+      .map((frame, index) => createWeatherSeriesPoint(frame, index))
+      .filter(Boolean)
+  )
+
+const appendWeatherSeriesPoint = (store, frame) => {
+  const nextPoint = createWeatherSeriesPoint(frame)
+  if (!nextPoint) {
+    return false
+  }
+
+  store.weatherTimeSeries.push(nextPoint)
+  store.weatherTimeSeries = pruneWeatherTimeSeries(store.weatherTimeSeries)
+  return true
+}
+
 const applyLiveFrameCache = (store, frame) => {
   const candidate = frame?.data
   if (!candidate || typeof candidate !== 'object') {
@@ -345,6 +485,7 @@ const createDefaultState = () => ({
   isConnected: false,
   history: [],
   rawStream: [],
+  weatherTimeSeries: [],
   latestLiveFlightPayloadCache: null,
   latestLiveWeatherFrameCache: null,
   latestLiveVisibilityFrameCache: null,
@@ -401,6 +542,9 @@ const readPersistedState = () => {
     const parsed = JSON.parse(raw)
     const rawStream = Array.isArray(parsed.rawStream) ? parsed.rawStream.slice(-RAW_STREAM_LIMIT) : defaults.rawStream
     const liveFrameCache = createLiveFrameCache(rawStream)
+    const weatherTimeSeries = Array.isArray(parsed.weatherTimeSeries)
+      ? parsed.weatherTimeSeries.slice(-WEATHER_SERIES_LIMIT)
+      : buildWeatherTimeSeries(rawStream)
 
     return {
       ...defaults,
@@ -408,6 +552,7 @@ const readPersistedState = () => {
       alerts: Array.isArray(parsed.alerts) ? parsed.alerts.slice(0, ALERT_LIMIT) : defaults.alerts,
       history: Array.isArray(parsed.history) ? parsed.history.slice(-HISTORY_LIMIT) : defaults.history,
       rawStream,
+      weatherTimeSeries,
       latestLiveFlightPayloadCache: liveFrameCache.latestLiveFlightPayloadCache,
       latestLiveWeatherFrameCache: liveFrameCache.latestLiveWeatherFrameCache,
       latestLiveVisibilityFrameCache: liveFrameCache.latestLiveVisibilityFrameCache,
@@ -641,6 +786,7 @@ const persistStateToLocal = (storeState) => {
         alerts: storeState.alerts,
         history: storeState.history,
         rawStream: storeState.rawStream,
+        weatherTimeSeries: storeState.weatherTimeSeries,
         flightTrack: storeState.flightTrack,
         telemetryArchive: storeState.telemetryArchive,
         localCacheMeta: storeState.localCacheMeta
@@ -1159,6 +1305,7 @@ export const useDroneStore = defineStore('drone', {
 
       this.rawStream.push(rawFrame)
       applyLiveFrameCache(this, rawFrame)
+      appendWeatherSeriesPoint(this, rawFrame)
 
       if (this.rawStream.length > RAW_STREAM_LIMIT) {
         this.rawStream.shift()
@@ -1360,6 +1507,7 @@ export const useDroneStore = defineStore('drone', {
 
       this.rawStream.push(rawFrame)
       applyLiveFrameCache(this, rawFrame)
+      appendWeatherSeriesPoint(this, rawFrame)
 
       if (this.rawStream.length > RAW_STREAM_LIMIT) {
         this.rawStream.shift()
@@ -1367,6 +1515,12 @@ export const useDroneStore = defineStore('drone', {
       }
 
       schedulePersistence(this)
+    },
+    addWeatherSample(samplePayload) {
+      // 支持 /ws/weather 这类只推送气象 JSON 的端点，不污染无人机原始帧流。
+      if (appendWeatherSeriesPoint(this, samplePayload)) {
+        schedulePersistence(this)
+      }
     },
     hydrateFromBackend(historyRecords = [], rawRecords = []) {
       const normalizedHistory = Array.isArray(historyRecords)
@@ -1401,6 +1555,7 @@ export const useDroneStore = defineStore('drone', {
           .map((record, index) =>
             buildRawStreamFrame(record.telemetry || record, record.stored_at || record.timestamp || index)
           )
+        this.weatherTimeSeries = buildWeatherTimeSeries(this.rawStream)
         refreshLiveFrameCache(this)
 
         if (normalizedHistory.length === 0) {
