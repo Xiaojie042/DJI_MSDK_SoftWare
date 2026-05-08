@@ -14,6 +14,8 @@ import json
 import math
 import time
 from collections import deque
+from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -26,6 +28,16 @@ from app.models.drone import Base, DroneState, FlightRecord, PsdkDataMessage
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+DEFAULT_ACTIVE_SESSION_FLUSH_INTERVAL_SECONDS = 0.5
+DEFAULT_ACTIVE_SESSION_MAX_PENDING_CHANGES = 5
+
+
+@dataclass
+class FlightSessionSummaryCacheEntry:
+    modified_at_ns: int
+    size: int
+    summary: dict[str, Any]
 
 
 def _to_radians(degrees: float) -> float:
@@ -76,6 +88,12 @@ class StorageService:
         self._active_flight_path: Optional[Path] = None
         self._active_flight_session: Optional[dict[str, Any]] = None
         self._known_weather_devices: dict[str, dict[str, str]] = {}
+        self._active_session_dirty = False
+        self._active_session_pending_changes = 0
+        self._active_session_last_persist_at = 0.0
+        self._active_session_flush_interval_seconds = DEFAULT_ACTIVE_SESSION_FLUSH_INTERVAL_SECONDS
+        self._active_session_max_pending_changes = DEFAULT_ACTIVE_SESSION_MAX_PENDING_CHANGES
+        self._flight_session_summary_cache: dict[Path, FlightSessionSummaryCacheEntry] = {}
 
     async def init_db(self) -> None:
         """Initialize database and ensure local persistence paths exist."""
@@ -99,7 +117,7 @@ class StorageService:
     async def save_telemetry(self, state: DroneState) -> None:
         """Persist one telemetry message into SQLite, JSONL history, and flight session JSON."""
         normalized_payload = self._build_normalized_payload(state)
-        raw_payload = self._build_raw_payload(state)
+        raw_payload = self._build_raw_payload(state, normalized_payload)
 
         record = FlightRecord(
             drone_id=state.drone_id,
@@ -172,8 +190,13 @@ class StorageService:
         return state.model_dump(mode="json", exclude={"raw_payload"})
 
     @staticmethod
-    def _build_raw_payload(state: DroneState) -> dict[str, Any]:
-        return state.raw_payload or state.model_dump(mode="json", exclude={"raw_payload"})
+    def _build_raw_payload(
+        state: DroneState,
+        normalized_payload: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        if state.raw_payload is not None:
+            return state.raw_payload
+        return normalized_payload or state.model_dump(mode="json", exclude={"raw_payload"})
 
     async def _sync_flight_session_with_telemetry(
         self,
@@ -198,7 +221,10 @@ class StorageService:
             }
             self._active_flight_session["telemetry_records"].append(telemetry_record)
             self._update_flight_summary_with_state(self._active_flight_session, state)
-            await self._persist_active_flight_session()
+            self._mark_active_flight_session_dirty()
+            await self._persist_active_flight_session(
+                force=len(self._active_flight_session["telemetry_records"]) <= 1,
+            )
 
             if not state.is_flying:
                 await self._finalize_active_flight_session(state.timestamp)
@@ -226,6 +252,7 @@ class StorageService:
                     "raw_payload": message.raw_payload or {},
                 }
             )
+            self._mark_active_flight_session_dirty()
             await self._persist_active_flight_session()
 
     def _should_rotate_active_session(self, state: DroneState) -> bool:
@@ -258,7 +285,10 @@ class StorageService:
         self._active_flight_id = flight_id
         self._active_flight_path = file_path
         self._active_flight_session = session_data
-        await self._persist_active_flight_session()
+        self._active_session_dirty = True
+        self._active_session_pending_changes = 0
+        self._active_session_last_persist_at = 0.0
+        await self._persist_active_flight_session(force=True)
 
     async def _finalize_active_flight_session(self, landing_time: Optional[float] = None) -> None:
         if not self._active_flight_session:
@@ -271,17 +301,43 @@ class StorageService:
 
         self._active_flight_session["status"] = "completed"
         self._active_flight_session["landing_time"] = resolved_landing_time
-        await self._persist_active_flight_session()
+        self._active_session_dirty = True
+        await self._persist_active_flight_session(force=True)
 
         self._active_flight_id = None
         self._active_flight_path = None
         self._active_flight_session = None
+        self._active_session_dirty = False
+        self._active_session_pending_changes = 0
+        self._active_session_last_persist_at = 0.0
+        self._known_weather_devices = {}
 
-    async def _persist_active_flight_session(self) -> None:
+    def _mark_active_flight_session_dirty(self) -> None:
+        self._active_session_dirty = True
+        self._active_session_pending_changes += 1
+
+    def _should_persist_active_flight_session(self, *, force: bool = False) -> bool:
+        if not self._active_flight_path or not self._active_flight_session:
+            return False
+        if not self._active_session_dirty:
+            return False
+        if force:
+            return True
+        if self._active_session_pending_changes >= self._active_session_max_pending_changes:
+            return True
+        return (time.monotonic() - self._active_session_last_persist_at) >= self._active_session_flush_interval_seconds
+
+    async def _persist_active_flight_session(self, *, force: bool = False) -> None:
+        if not self._should_persist_active_flight_session(force=force):
+            return
         if not self._active_flight_path or not self._active_flight_session:
             return
-        payload = json.loads(json.dumps(self._active_flight_session, ensure_ascii=False))
+        payload = deepcopy(self._active_flight_session)
         await asyncio.to_thread(self._write_json_file, self._active_flight_path, payload)
+        self._cache_flight_session_summary(self._active_flight_path, payload)
+        self._active_session_dirty = False
+        self._active_session_pending_changes = 0
+        self._active_session_last_persist_at = time.monotonic()
 
     def _update_flight_summary_with_state(self, flight_session: dict[str, Any], state: DroneState) -> None:
         summary = flight_session.setdefault(
@@ -384,8 +440,54 @@ class StorageService:
             "attached_weather_devices": session_data.get("attached_weather_devices", []),
         }
 
+    def _get_flight_session_cache_signature(self, path: Path) -> tuple[int, int]:
+        stat = path.stat()
+        return stat.st_mtime_ns, stat.st_size
+
+    def _cache_flight_session_summary(
+        self,
+        path: Path,
+        session_data: dict[str, Any],
+        *,
+        modified_at_ns: Optional[int] = None,
+        size: Optional[int] = None,
+    ) -> dict[str, Any]:
+        if modified_at_ns is None or size is None:
+            modified_at_ns, size = self._get_flight_session_cache_signature(path)
+
+        summary = self._build_flight_session_summary(session_data)
+        self._flight_session_summary_cache[path] = FlightSessionSummaryCacheEntry(
+            modified_at_ns=modified_at_ns,
+            size=size,
+            summary=summary,
+        )
+        return deepcopy(summary)
+
+    def _read_flight_session_summary_sync(self, path: Path) -> dict[str, Any]:
+        modified_at_ns, size = self._get_flight_session_cache_signature(path)
+        cached_entry = self._flight_session_summary_cache.get(path)
+        if (
+            cached_entry
+            and cached_entry.modified_at_ns == modified_at_ns
+            and cached_entry.size == size
+        ):
+            return deepcopy(cached_entry.summary)
+
+        session_data = self._read_json_file(path)
+        return self._cache_flight_session_summary(
+            path,
+            session_data,
+            modified_at_ns=modified_at_ns,
+            size=size,
+        )
+
+    def _invalidate_flight_session_summary_cache(self, path: Path) -> None:
+        self._flight_session_summary_cache.pop(path, None)
+
     async def get_flight_sessions(self, limit: int = 100) -> list[dict[str, Any]]:
         safe_limit = max(1, min(limit, 1000))
+        async with self._session_lock:
+            await self._persist_active_flight_session(force=True)
         return await asyncio.to_thread(self._list_flight_sessions_sync, safe_limit)
 
     def _list_flight_sessions_sync(self, limit: int) -> list[dict[str, Any]]:
@@ -395,8 +497,7 @@ class StorageService:
         sessions: list[dict[str, Any]] = []
         for path in self._flight_sessions_path.glob("*.json"):
             try:
-                session_data = self._read_json_file(path)
-                sessions.append(self._build_flight_session_summary(session_data))
+                sessions.append(self._read_flight_session_summary_sync(path))
             except Exception as exc:
                 logger.warning("Skipping invalid flight session file", path=str(path), error=str(exc))
 
@@ -405,6 +506,9 @@ class StorageService:
 
     async def get_flight_session(self, flight_id: str) -> Optional[dict[str, Any]]:
         path = self._resolve_flight_session_path(flight_id)
+        async with self._session_lock:
+            if self._active_flight_path == path:
+                await self._persist_active_flight_session(force=True)
         return await asyncio.to_thread(self._read_flight_session_sync, path)
 
     def _read_flight_session_sync(self, path: Path) -> Optional[dict[str, Any]]:
@@ -419,6 +523,8 @@ class StorageService:
     async def delete_flight_session(self, flight_id: str) -> bool:
         async with self._session_lock:
             path = self._resolve_flight_session_path(flight_id)
+            if self._active_flight_path == path:
+                await self._persist_active_flight_session(force=True)
             session_data = await asyncio.to_thread(self._read_flight_session_sync, path)
             if not session_data:
                 return False
@@ -427,6 +533,9 @@ class StorageService:
                 self._active_flight_id = None
                 self._active_flight_path = None
                 self._active_flight_session = None
+                self._active_session_dirty = False
+                self._active_session_pending_changes = 0
+                self._active_session_last_persist_at = 0.0
 
             await self._delete_session_related_records(session_data)
             await asyncio.to_thread(self._delete_flight_session_file, path)
@@ -458,6 +567,7 @@ class StorageService:
     def _delete_flight_session_file(self, path: Path) -> None:
         if path.exists():
             path.unlink()
+        self._invalidate_flight_session_summary_cache(path)
 
     def _prune_raw_history_for_session(self, session_data: dict[str, Any]) -> None:
         if not self._raw_history_path.exists():

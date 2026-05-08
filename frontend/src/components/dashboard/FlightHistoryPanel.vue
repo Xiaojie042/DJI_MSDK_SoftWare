@@ -1,8 +1,10 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useDroneStore } from '@/stores/droneStore'
+import { exportFlightSessionExcel } from '@/utils/flightSessionExcel'
 
 const store = useDroneStore()
+const exportingFlightId = ref('')
 
 const records = computed(() => store.flightSessions)
 const selectedIds = computed(() => new Set(store.selectedFlightSessionIds))
@@ -39,6 +41,7 @@ const formatAltitude = (value) => {
 
 const isSelected = (flightId) => selectedIds.value.has(flightId)
 const isDeleting = (flightId) => store.flightSessionsDeletingIds.includes(flightId)
+const isExporting = (flightId) => exportingFlightId.value === flightId
 
 const handleToggle = async (flightId) => {
   try {
@@ -122,6 +125,25 @@ const handleReplay = async (flightId) => {
   } catch (error) {
     store.flightSessionsError = '历史架次回放启动失败'
     console.warn(`Failed to start replay for flight session ${flightId}:`, error)
+  }
+}
+
+const handleExport = async (flightId) => {
+  if (!flightId || exportingFlightId.value) {
+    return
+  }
+
+  exportingFlightId.value = flightId
+  store.flightSessionsError = ''
+
+  try {
+    const detail = await store.fetchFlightSessionDetail(flightId)
+    exportFlightSessionExcel(detail)
+  } catch (error) {
+    store.flightSessionsError = '历史架次导出失败'
+    console.warn(`Failed to export flight session ${flightId}:`, error)
+  } finally {
+    exportingFlightId.value = ''
   }
 }
 </script>
@@ -245,8 +267,16 @@ const handleReplay = async (flightId) => {
                     </button>
                     <button
                       type="button"
+                      class="history-card__export"
+                      :disabled="isExporting(record.flight_id) || isDeleting(record.flight_id)"
+                      @click.stop="handleExport(record.flight_id)"
+                    >
+                      {{ isExporting(record.flight_id) ? '导出中...' : '导出 Excel' }}
+                    </button>
+                    <button
+                      type="button"
                       class="history-card__delete"
-                      :disabled="isDeleting(record.flight_id)"
+                      :disabled="isDeleting(record.flight_id) || isExporting(record.flight_id)"
                       @click.stop="handleDelete(record.flight_id, record.file_name)"
                     >
                       {{ isDeleting(record.flight_id) ? '删除中...' : '删除' }}
@@ -522,6 +552,15 @@ const handleReplay = async (flightId) => {
   font-size: 0.74rem;
 }
 
+.history-card__delete,
+.history-card__export,
+.history-card__replay {
+  min-height: 32px;
+  padding: 0 0.82rem;
+  border-radius: 10px;
+  font-size: 0.74rem;
+}
+
 .history-card__delete {
   min-height: 32px;
   padding: 0 0.82rem;
@@ -542,13 +581,21 @@ const handleReplay = async (flightId) => {
   font-size: 0.74rem;
 }
 
+.history-card__export {
+  border: 1px solid rgba(96, 165, 250, 0.22);
+  background: rgba(59, 130, 246, 0.14);
+  color: #bfdbfe;
+}
+
 .history-card__replay--active {
   border-color: rgba(56, 189, 248, 0.22);
   background: rgba(56, 189, 248, 0.14);
   color: #bae6fd;
 }
 
-.history-card__delete:disabled {
+.history-card__delete:disabled,
+.history-card__export:disabled,
+.history-card__replay:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
