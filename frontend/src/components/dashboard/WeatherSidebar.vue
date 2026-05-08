@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useDroneStore } from '@/stores/droneStore'
 
 const store = useDroneStore()
@@ -118,6 +118,33 @@ const visibilityDisplay = computed(() => {
 
   return `${Math.round(weather.value.visibility)} m`
 })
+
+const normalizeAngle = (value) => {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) {
+    return 0
+  }
+
+  return ((numeric % 360) + 360) % 360
+}
+
+const displayedCompassAngle = ref(0)
+
+watch(
+  () => weather.value.compassAngle,
+  (nextAngle) => {
+    const target = normalizeAngle(nextAngle)
+    const current = normalizeAngle(displayedCompassAngle.value)
+    const delta = ((target - current + 540) % 360) - 180
+
+    displayedCompassAngle.value += delta
+  },
+  { immediate: true }
+)
+
+const needleRotationStyle = computed(() => ({
+  transform: `rotate(${displayedCompassAngle.value}deg)`
+}))
 </script>
 
 <template>
@@ -152,7 +179,7 @@ const visibilityDisplay = computed(() => {
           </g>
         </svg>
 
-        <div class="needle-wrapper" :style="{ transform: `rotate(${weather.compassAngle}deg)` }">
+        <div class="needle-wrapper" :style="needleRotationStyle">
           <div class="needle-main"></div>
           <div class="needle-tail"></div>
         </div>

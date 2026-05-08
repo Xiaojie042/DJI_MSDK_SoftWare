@@ -52,11 +52,6 @@ watch(
       </button>
     </div>
 
-    <div class="terminal-strip">
-      <span>缓存 {{ store.rawStream.length }} 条</span>
-      <span>最近更新 {{ latestFrameTime }}</span>
-    </div>
-
     <Teleport to="body">
       <div v-if="isExpanded" class="terminal-overlay" @click.self="toggleConsole">
         <div class="terminal-modal glass-panel">
@@ -99,11 +94,11 @@ watch(
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.35rem;
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  padding: 0.65rem 0.75rem;
+  padding: 0.48rem 0.62rem;
   border-radius: 22px;
   background: rgba(15, 23, 42, 0.88);
   border: 1px solid rgba(56, 189, 248, 0.2);
@@ -125,7 +120,7 @@ watch(
 
 .eyebrow {
   margin: 0 0 0.22rem;
-  font-size: 0.66rem;
+  font-size: 0.62rem;
   letter-spacing: 0.18em;
   color: rgba(148, 163, 184, 0.8);
   text-transform: uppercase;
@@ -139,7 +134,7 @@ watch(
 }
 
 .console-title strong {
-  font-size: 0.9rem;
+  font-size: 0.84rem;
 }
 
 .pulse-dot {
@@ -155,9 +150,9 @@ watch(
   display: flex;
   align-items: center;
   gap: 0.55rem;
-  margin-top: 0.45rem;
+  margin-top: 0.3rem;
   min-width: 0;
-  padding: 0.55rem 0.68rem;
+  padding: 0.42rem 0.56rem;
   border-radius: 12px;
   background: rgba(2, 6, 23, 0.68);
   border: 1px solid rgba(59, 130, 246, 0.18);
@@ -166,40 +161,27 @@ watch(
 .preview-time {
   flex-shrink: 0;
   color: #a78bfa;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
 }
 
 .preview-json {
   min-width: 0;
   overflow: hidden;
   color: #94a3b8;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
 .toggle-btn {
   flex-shrink: 0;
-  min-width: 124px;
-  padding: 0.52rem 0.8rem;
+  min-width: 118px;
+  padding: 0.42rem 0.68rem;
   border-radius: 12px;
   border: 1px solid rgba(56, 189, 248, 0.18);
   background: rgba(56, 189, 248, 0.12);
   color: #bae6fd;
-  font-size: 0.78rem;
-}
-
-.terminal-strip {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
-  align-items: center;
-  padding: 0.48rem 0.68rem;
-  border-radius: 12px;
-  background: rgba(30, 41, 59, 0.46);
-  border: 1px solid rgba(148, 163, 184, 0.12);
-  color: #94a3b8;
-  font-size: 0.72rem;
+  font-size: 0.74rem;
 }
 
 .terminal-overlay {
@@ -318,8 +300,7 @@ watch(
 
 @media (max-width: 900px) {
   .terminal-mini,
-  .terminal-toolbar,
-  .terminal-strip {
+  .terminal-toolbar {
     flex-direction: column;
     align-items: stretch;
   }

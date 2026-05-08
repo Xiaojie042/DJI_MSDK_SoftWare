@@ -8,20 +8,23 @@ const store = useDroneStore()
 const safetyTone = computed(() => `tone-${store.safetyPolicy.level}`)
 const healthTone = computed(() => `tone-${store.batteryHealth.tone}`)
 
-const localSavedTime = computed(() => {
-  if (!store.localCacheMeta.lastSavedAt) {
-    return '等待首次保存'
-  }
-
-  return new Date(store.localCacheMeta.lastSavedAt).toLocaleTimeString('zh-CN', {
-    hour12: false
-  })
-})
-
 const batteryScoreText = computed(() =>
   store.batteryHealth.score === null ? '--' : `${store.batteryHealth.score}`
 )
 const latestFlightPayload = computed(() => store.latestLiveFlightPayload)
+const canRecenterDrone = computed(() => {
+  const position = store.currentDroneState?.position || {}
+  return Number.isFinite(position.latitude) &&
+    Number.isFinite(position.longitude) &&
+    (position.latitude !== 0 || position.longitude !== 0)
+})
+const FAILSAFE_ACTION_LABELS = {
+  GOHOME: '返航',
+  GO_HOME: '返航',
+  LAND: '降落',
+  HOVER: '悬停',
+  NONE: '无'
+}
 
 const hasValue = (value) => value !== undefined && value !== null && value !== ''
 
@@ -67,7 +70,12 @@ const formatIntegerMetric = (value, suffix = '') => {
 
 const formatFailsafeAction = () => {
   const value = readFlightValue(['failsafe_action'], null)
-  return hasValue(value) ? String(value).replace(/_/g, ' ') : '--'
+  if (!hasValue(value)) {
+    return '--'
+  }
+
+  const normalized = String(value).replace(/\s+/g, '_').toUpperCase()
+  return FAILSAFE_ACTION_LABELS[normalized] || String(value).replace(/_/g, ' ')
 }
 
 const formatDistanceLimit = () => {
@@ -76,11 +84,11 @@ const formatDistanceLimit = () => {
   const hasLimit = Number.isFinite(Number(limit))
 
   if (enabled === false && hasLimit) {
-    return `OFF / ${Math.round(Number(limit))} m`
+    return `关闭 / ${Math.round(Number(limit))} m`
   }
 
   if (enabled === false) {
-    return 'OFF'
+    return '关闭'
   }
 
   return hasLimit ? `${Math.round(Number(limit))} m` : '--'
@@ -96,7 +104,6 @@ const formatDistanceLimit = () => {
           <div class="policy-badge track-chip">{{ store.flightTrack.length }} 点</div>
         </div>
         <strong>当前航迹</strong>
-        <p class="clamp-two"></p>
         <div class="track-actions">
           <button type="button" class="track-action-button track-action-button--primary" @click="store.clearCurrentTrack">
             清除轨迹
@@ -108,8 +115,13 @@ const formatDistanceLimit = () => {
           >
             历史架次
           </button>
-          <button type="button" class="track-action-button" disabled>
-            预留按钮
+          <button
+            type="button"
+            class="track-action-button track-action-button--recenter"
+            :disabled="!canRecenterDrone"
+            @click="store.requestDroneRecenter()"
+          >
+            无人机回正
           </button>
         </div>
 
@@ -138,7 +150,6 @@ const formatDistanceLimit = () => {
           </div>
         </div>
 
-        <small class="status-footnote">最近保存 {{ localSavedTime }}</small>
       </article>
 
       <article class="status-card limits-card">
@@ -148,19 +159,19 @@ const formatDistanceLimit = () => {
 
         <div class="limits-grid">
           <div class="limit-item">
-            <span>返航高度 (RTH)</span>
+            <span>返航高度</span>
             <strong>{{ formatIntegerMetric(readFlightValue(['go_home_height'], null), ' m') }}</strong>
           </div>
           <div class="limit-item">
-            <span>限高 (H-LIM)</span>
+            <span>限高</span>
             <strong>{{ formatIntegerMetric(readFlightValue(['height_limit'], null), ' m') }}</strong>
           </div>
           <div class="limit-item">
-            <span>限远 (D-LIM)</span>
+            <span>限远</span>
             <strong>{{ formatDistanceLimit() }}</strong>
           </div>
           <div class="limit-item">
-            <span>失控动作 (F-SAFE)</span>
+            <span>失控动作</span>
             <strong>{{ formatFailsafeAction() }}</strong>
           </div>
         </div>
@@ -178,7 +189,7 @@ const formatDistanceLimit = () => {
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  padding: 0.35rem 0.75rem;
+  padding: 0.24rem 0.62rem;
   border-radius: 22px;
 }
 
@@ -196,8 +207,8 @@ const formatDistanceLimit = () => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.42rem;
-  padding: 0.45rem 0.9rem;
+  gap: 0.28rem;
+  padding: 0.28rem 0.72rem;
   background: transparent;
   border: none;
   border-radius: 0;
@@ -218,7 +229,7 @@ const formatDistanceLimit = () => {
 .card-label {
   display: block;
   color: #94a3b8;
-  font-size: 0.64rem;
+  font-size: 0.6rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -227,7 +238,7 @@ const formatDistanceLimit = () => {
   display: block;
   margin-bottom: 0;
   color: #f8fafc;
-  font-size: 0.88rem;
+  font-size: 0.82rem;
 }
 
 .status-card p,
@@ -235,8 +246,8 @@ const formatDistanceLimit = () => {
   display: block;
   margin: 0;
   color: #94a3b8;
-  line-height: 1.28;
-  font-size: 0.72rem;
+  line-height: 1.2;
+  font-size: 0.68rem;
 }
 
 .clamp-one,
@@ -275,24 +286,25 @@ const formatDistanceLimit = () => {
 .track-actions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.4rem;
+  gap: 0.34rem;
   margin-top: auto;
 }
 
 .track-action-button {
-  min-height: 32px;
-  padding: 0 0.45rem;
+  min-height: 28px;
+  padding: 0 0.35rem;
   border: 1px solid rgba(148, 163, 184, 0.14);
   border-radius: 10px;
   background: rgba(30, 41, 59, 0.46);
   color: #94a3b8;
-  font-size: 0.7rem;
+  font-size: 0.66rem;
   font-weight: 600;
   cursor: not-allowed;
 }
 
 .track-action-button--primary,
-.track-action-button--secondary {
+.track-action-button--secondary,
+.track-action-button--recenter {
   cursor: pointer;
   transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
 }
@@ -319,32 +331,49 @@ const formatDistanceLimit = () => {
   border-color: rgba(148, 163, 184, 0.28);
 }
 
+.track-action-button--recenter {
+  border-color: rgba(167, 139, 250, 0.22);
+  background: rgba(129, 140, 248, 0.16);
+  color: #e9d5ff;
+}
+
+.track-action-button--recenter:hover:not(:disabled) {
+  background: rgba(129, 140, 248, 0.26);
+  border-color: rgba(196, 181, 253, 0.4);
+}
+
+.track-action-button--recenter:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .track-action-button--primary:active,
-.track-action-button--secondary:active {
+.track-action-button--secondary:active,
+.track-action-button--recenter:active {
   transform: translateY(1px);
 }
 
 .health-chip {
   min-width: 42px;
   text-align: center;
-  padding: 0.18rem 0.42rem;
+  padding: 0.14rem 0.38rem;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.9);
   color: #f8fafc;
   font-weight: 700;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
 }
 
 .health-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.4rem;
+  gap: 0.32rem;
   margin-top: auto;
 }
 
 .health-metrics div,
 .limit-item {
-  padding: 0.42rem 0.5rem;
+  padding: 0.34rem 0.46rem;
   border-radius: 10px;
   background: rgba(30, 41, 59, 0.46);
   border: 1px solid rgba(148, 163, 184, 0.1);
@@ -353,16 +382,16 @@ const formatDistanceLimit = () => {
 .health-metrics span,
 .limit-item span {
   display: block;
-  margin-bottom: 0.15rem;
+  margin-bottom: 0.08rem;
   color: #94a3b8;
-  font-size: 0.62rem;
+  font-size: 0.58rem;
   line-height: 1.2;
 }
 
 .health-metrics strong,
 .limit-item strong {
   margin-bottom: 0;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   line-height: 1.2;
 }
 
@@ -389,10 +418,6 @@ const formatDistanceLimit = () => {
   color: #7dd3fc;
 }
 
-.status-footnote {
-  margin-top: 0.42rem;
-}
-
 .limits-card {
   justify-content: space-between;
 }
@@ -400,8 +425,25 @@ const formatDistanceLimit = () => {
 .limits-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
   margin-top: auto;
+}
+
+.limit-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+}
+
+.limit-item span,
+.limit-item strong {
+  display: inline;
+  margin: 0;
+}
+
+.limit-item strong {
+  white-space: nowrap;
 }
 
 .tone-good .health-chip {
