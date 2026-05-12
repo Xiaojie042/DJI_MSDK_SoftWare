@@ -832,15 +832,15 @@ onBeforeUnmount(() => {
   top: var(--chart-panel-top);
   left: var(--chart-panel-left);
   right: var(--chart-panel-right);
+  bottom: 1rem;
   z-index: 16;
   width: var(--chart-panel-width);
-  height: min(760px, calc(100% - 2rem));
   min-width: 520px;
   max-width: 72%;
-  padding: 0.75rem;
+  padding: 0.65rem;
   display: flex;
   flex-direction: column;
-  overflow: visible;
+  overflow: hidden;
   border-radius: 18px;
   box-shadow: 0 22px 54px rgba(2, 6, 23, 0.46);
 }
@@ -855,11 +855,52 @@ onBeforeUnmount(() => {
 
 .weather-charts-page.is-split .chart-grid {
   flex: 1 1 auto;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 0.75rem 0.15rem 0.2rem 0;
+  gap: 0.75rem;
+  padding: 0.55rem 0.35rem 0.35rem 0;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.weather-charts-page.is-split :deep(.chart-card) {
+  min-height: 0;
+}
+
+.weather-charts-page.is-split :deep(.chart-card__canvas) {
+  min-height: 0;
+  padding: 0.15rem 0.65rem 0.55rem;
+}
+
+.weather-charts-page.is-split :deep(.chart-card__canvas svg) {
+  height: 200px;
+}
+
+.weather-charts-page.is-split :deep(.chart-card__header) {
+  padding: 0.5rem 0.75rem 0.2rem;
+}
+
+.weather-charts-page.is-split :deep(.chart-card__header strong) {
+  font-size: 1rem;
+}
+
+.weather-charts-page.is-split :deep(.chart-card__header span) {
+  font-size: 0.72rem;
+}
+
+.weather-charts-page.is-split :deep(.chart-card__header em) {
+  font-size: 0.7rem;
+}
+
+.weather-charts-page.is-split :deep(.chart-card__clear) {
+  width: 28px;
+  height: 28px;
+}
+
+.weather-charts-page.is-split :deep(.chart-line) {
+  stroke-width: 2;
 }
 
 .weather-charts-page:not(.is-split) .chart-grid {
@@ -930,6 +971,7 @@ onBeforeUnmount(() => {
     top: auto;
     left: auto;
     right: auto;
+    bottom: auto;
     margin-top: 1rem;
     overflow: visible;
     border-radius: 18px;
@@ -973,7 +1015,8 @@ onBeforeUnmount(() => {
     flex: 1 1 130px;
   }
 
-  .chart-grid {
+  .chart-grid,
+  .weather-charts-page.is-split .chart-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
