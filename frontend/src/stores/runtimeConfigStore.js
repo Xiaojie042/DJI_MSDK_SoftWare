@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import logger from '@/utils/logger'
 
 const RUNTIME_CONFIG_KEY = 'drone-monitor:runtime-config:v1'
 const DEFAULT_API_PORT = '8000'
@@ -83,7 +84,7 @@ const parseConfiguredBaseUrl = () => {
       port: url.port || DEFAULT_API_PORT
     }
   } catch (error) {
-    console.warn('Failed to parse VITE_API_BASE_URL, falling back to window location:', error)
+    logger.warn('Failed to parse VITE_API_BASE_URL, falling back to window location:', error)
     return null
   }
 }
@@ -178,7 +179,10 @@ function createDefaultState() {
     backendStatus: null,
     statusLoading: false,
     statusError: '',
-    lastSavedAt: null
+    lastSavedAt: null,
+    deviceTcpClients: 0,
+    lastTelemetryAt: null,
+    deviceMonitorTimer: null
   }
 }
 
@@ -198,7 +202,7 @@ const persistRuntimeConfig = (state) => {
       })
     )
   } catch (error) {
-    console.warn('Failed to persist runtime config:', error)
+    logger.warn('Failed to persist runtime config:', error)
   }
 }
 
@@ -223,7 +227,7 @@ const readPersistedState = () => {
       lastSavedAt: parsed.lastSavedAt || null
     }
   } catch (error) {
-    console.warn('Failed to restore runtime config:', error)
+    logger.warn('Failed to restore runtime config:', error)
     return defaults
   }
 }
@@ -265,6 +269,34 @@ export const useRuntimeConfigStore = defineStore('runtime-config', {
     },
     webSocketUrl(state) {
       return buildWebSocketUrl(state.connection.apiHost, state.connection.apiPort)
+    },
+    deviceConnectionState() {
+      if (this.deviceTcpClients <= 0) {
+        return {
+          state: 'disconnected',
+          label: '设备断联',
+          status: 'danger',
+          tcpClients: 0
+        }
+      }
+
+      const hasData = this.lastTelemetryAt && (Date.now() - this.lastTelemetryAt < 15000)
+
+      if (!hasData) {
+        return {
+          state: 'connected_no_data',
+          label: '连接无数据',
+          status: 'warning',
+          tcpClients: this.deviceTcpClients
+        }
+      }
+
+      return {
+        state: 'connected',
+        label: '设备已连接',
+        status: 'success',
+        tcpClients: this.deviceTcpClients
+      }
     }
   },
 
@@ -317,7 +349,7 @@ export const useRuntimeConfigStore = defineStore('runtime-config', {
         return this.mergeRuntimeConfig(payload)
       } catch (error) {
         this.statusError = 'Failed to load backend runtime config.'
-        console.warn('Failed to load backend runtime config:', error)
+        logger.warn('Failed to load backend runtime config:', error)
         return null
       }
     },
@@ -345,7 +377,7 @@ export const useRuntimeConfigStore = defineStore('runtime-config', {
         return true
       } catch (error) {
         this.statusError = 'Failed to sync runtime config to backend.'
-        console.warn('Failed to sync runtime config to backend:', error)
+        logger.warn('Failed to sync runtime config to backend:', error)
         return false
       }
     },
@@ -366,11 +398,43 @@ export const useRuntimeConfigStore = defineStore('runtime-config', {
       } catch (error) {
         this.backendStatus = null
         this.statusError = 'Current backend endpoint is unreachable.'
-        console.warn('Failed to load backend status:', error)
+        logger.warn('Failed to load backend status:', error)
         return null
       } finally {
         this.statusLoading = false
       }
+    },
+
+    async pollDeviceHealth() {
+      try {
+        const response = await fetch(`${this.apiBaseUrl}/api/health`)
+        if (!response.ok) return
+        const payload = await response.json()
+        this.deviceTcpClients = Number(payload.tcp_clients) || 0
+      } catch {
+        this.deviceTcpClients = 0
+      }
+    },
+
+    startDeviceMonitor() {
+      this.stopDeviceMonitor()
+      this.pollDeviceHealth()
+      if (typeof window !== 'undefined') {
+        this.deviceMonitorTimer = window.setInterval(() => {
+          this.pollDeviceHealth()
+        }, 5000)
+      }
+    },
+
+    stopDeviceMonitor() {
+      if (this.deviceMonitorTimer && typeof window !== 'undefined') {
+        window.clearInterval(this.deviceMonitorTimer)
+        this.deviceMonitorTimer = null
+      }
+    },
+
+    recordTelemetry() {
+      this.lastTelemetryAt = Date.now()
     }
   }
 })

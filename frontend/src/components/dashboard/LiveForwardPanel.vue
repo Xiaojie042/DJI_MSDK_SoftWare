@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRuntimeConfigStore } from '@/stores/runtimeConfigStore'
+import logger from '@/utils/logger'
 
 const configStore = useRuntimeConfigStore()
 const PREVIEW_SIZE_STORAGE_KEY = 'drone-monitor:live-preview-width:v1'
@@ -594,7 +595,7 @@ const switchToFlvPreview = async (reason = '') => {
     return
   }
   if (reason) {
-    console.warn('WebRTC preview failed, switching to HTTP-FLV', reason)
+    logger.warn('WebRTC preview failed, switching to HTTP-FLV', reason)
   }
   await startFlvPreview()
 }
@@ -753,7 +754,7 @@ const startFlvPreview = async () => {
     flvPlayer.on(flvjs.Events.MEDIA_INFO, playPreviewVideo)
     flvPlayer.on(flvjs.Events.ERROR, async (type, detail, info) => {
       const suffix = [type, detail, info?.msg || info?.code].filter(Boolean).join(' / ')
-      console.warn('HTTP-FLV preview failed, switching to fMP4', suffix)
+      logger.warn('HTTP-FLV preview failed, switching to fMP4', suffix)
       await startNativePreview()
     })
     flvPlayer.attachMediaElement(previewVideo.value)

@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useDroneStore } from '@/stores/droneStore'
+import config from '@/utils/config'
 
 const store = useDroneStore()
 const INVALID_MARKER = '///'
@@ -67,13 +68,18 @@ const weather = computed(() => {
     visibilityPayload.value.visibility_1min_m,
     visibilityPayload.value.visibility_10min_m
   )
-  const altitude = readMetricValue(
+
+  const droneAlt = displayDroneState.value?.position?.altitude
+  const validDroneAlt = Number.isFinite(droneAlt) && droneAlt !== 0 ? droneAlt : null
+
+  const payloadAlt = readMetricValue(
     readPath(latestFlightFrame.value, 'location.altitude'),
     readPath(latestFlightFrame.value, 'aircraft_status.aircraft_location.altitude'),
     readPath(latestFlightFrame.value, 'position.altitude'),
-    latestFlightFrame.value?.altitude,
-    displayDroneState.value?.position?.altitude
+    latestFlightFrame.value?.altitude
   )
+
+  const altitude = validDroneAlt !== null ? validDroneAlt : payloadAlt
 
   return {
     windSpeed,
@@ -148,10 +154,10 @@ const needleRotationStyle = computed(() => ({
 </script>
 
 <template>
-  <section class="weather-sidebar glass-panel">
+  <section v-if="config.ENABLE_WEATHER_SIDEBAR" class="weather-sidebar glass-panel">
     <div class="weather-sidebar__toolbar">
       <span>气象监测</span>
-      <RouterLink to="/weather-charts">气象图表</RouterLink>
+      <RouterLink v-if="config.ENABLE_WEATHER_CHARTS" to="/weather-charts">气象图表</RouterLink>
     </div>
 
     <div class="compass-section">

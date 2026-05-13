@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useDroneStore } from '@/stores/droneStore'
 import { exportFlightSessionExcel } from '@/utils/flightSessionExcel'
+import logger from '@/utils/logger'
 
 const store = useDroneStore()
 const exportingFlightId = ref('')
@@ -48,7 +49,7 @@ const handleToggle = async (flightId) => {
     await store.toggleFlightSessionSelection(flightId)
   } catch (error) {
     store.flightSessionsError = '历史轨迹加载失败'
-    console.warn(`Failed to toggle flight session ${flightId}:`, error)
+    logger.warn(`Failed to toggle flight session ${flightId}:`, error)
   }
 }
 
@@ -124,7 +125,7 @@ const handleReplay = async (flightId) => {
     store.closeFlightHistoryPanel()
   } catch (error) {
     store.flightSessionsError = '历史架次回放启动失败'
-    console.warn(`Failed to start replay for flight session ${flightId}:`, error)
+    logger.warn(`Failed to start replay for flight session ${flightId}:`, error)
   }
 }
 
@@ -141,7 +142,7 @@ const handleExport = async (flightId) => {
     exportFlightSessionExcel(detail)
   } catch (error) {
     store.flightSessionsError = '历史架次导出失败'
-    console.warn(`Failed to export flight session ${flightId}:`, error)
+    logger.warn(`Failed to export flight session ${flightId}:`, error)
   } finally {
     exportingFlightId.value = ''
   }

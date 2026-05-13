@@ -1,5 +1,14 @@
 import { defineStore } from 'pinia'
 import { useRuntimeConfigStore } from '@/stores/runtimeConfigStore'
+import logger from '@/utils/logger'
+
+const recordTelemetryTime = () => {
+  try {
+    useRuntimeConfigStore().recordTelemetry()
+  } catch {
+    // ignore - store may not be initialized yet
+  }
+}
 
 const LOCAL_CACHE_KEY = 'drone-monitor:telemetry-cache:v1'
 const TRACK_LIMIT = 5000
@@ -180,7 +189,8 @@ const createDefaultDroneState = () => ({
   is_flying: false,
   home_distance: 0,
   gimbal_pitch: 0,
-  rc_signal: null
+  rc_signal: null,
+  rc_battery: null
 })
 
 const normalizeFlightSessionSummary = (record = {}) => ({
@@ -483,6 +493,8 @@ const createDefaultState = () => ({
   droneState: createDefaultDroneState(),
   alerts: [],
   isConnected: false,
+  connectionLostCount: 0,
+  lastDisconnectedAt: null,
   history: [],
   rawStream: [],
   weatherTimeSeries: [],
@@ -490,6 +502,7 @@ const createDefaultState = () => ({
   latestLiveWeatherFrameCache: null,
   latestLiveVisibilityFrameCache: null,
   flightTrack: [],
+  flightStartTime: null,
   telemetryArchive: [],
   flightHistoryPanelOpen: false,
   flightSessions: [],
@@ -566,7 +579,7 @@ const readPersistedState = () => {
       }
     }
   } catch (error) {
-    console.warn('Failed to restore local telemetry cache:', error)
+    logger.warn('Failed to restore local telemetry cache:', error)
     return defaults
   }
 }
@@ -732,13 +745,20 @@ const normalizeDroneStatePayload = (payload = {}) => {
   const velocity = source.velocity || {}
   const battery = source.battery || {}
 
+  const aircraftStatus = source.aircraft_status || {}
+  const aircraftLocation = aircraftStatus.aircraft_location || {}
+  const aircraftBattery = aircraftLocation.battery || aircraftStatus.battery || {}
+
   return {
     drone_id: source.drone_id || source.droneId || 'DJI-NONE',
     timestamp: toFiniteNumber(source.timestamp, Date.now() / 1000),
     position: {
       latitude: toFiniteNumber(position.latitude ?? source.latitude ?? source.lat, 0),
       longitude: toFiniteNumber(position.longitude ?? source.longitude ?? source.lng ?? source.lon, 0),
-      altitude: toFiniteNumber(position.altitude ?? source.altitude ?? source.relative_altitude, 0)
+      altitude: toFiniteNumber(
+        position.altitude ?? source.altitude ?? source.relative_altitude,
+        0
+      )
     },
     heading: toFiniteNumber(source.heading ?? source.aircraft_heading, 0),
     velocity: {
@@ -750,13 +770,22 @@ const normalizeDroneStatePayload = (payload = {}) => {
     },
     battery: {
       percent: clamp(
-        Math.round(toFiniteNumber(battery.percent ?? source.battery_percent ?? source.batteryPercent, 0)),
+        Math.round(toFiniteNumber(
+          battery.percent ?? source.battery_percent ?? source.batteryPercent ??
+          aircraftBattery.percent ?? aircraftBattery.battery_percent ?? 0,
+          0
+        )),
         0,
         100
       ),
-      voltage: toFiniteNumber(battery.voltage ?? source.battery_voltage ?? source.batteryVoltage, 0),
+      voltage: toFiniteNumber(
+        battery.voltage ?? source.battery_voltage ?? source.batteryVoltage ??
+        aircraftBattery.voltage ?? aircraftBattery.battery_voltage ?? 0,
+        0
+      ),
       temperature: toFiniteNumber(
-        battery.temperature ?? source.battery_temperature ?? source.batteryTemperature,
+        battery.temperature ?? source.battery_temperature ?? source.batteryTemperature ??
+        aircraftBattery.temperature ?? aircraftBattery.battery_temperature ?? 0,
         0
       )
     },
@@ -769,7 +798,12 @@ const normalizeDroneStatePayload = (payload = {}) => {
     is_flying: toBoolean(source.is_flying ?? source.isFlying, false),
     home_distance: toFiniteNumber(source.home_distance ?? source.homeDistance, 0),
     gimbal_pitch: toFiniteNumber(source.gimbal_pitch ?? source.gimbalPitch, 0),
-    rc_signal: toNullableNumber(source.rc_signal ?? source.rcSignal)
+    rc_signal: toNullableNumber(source.rc_signal ?? source.rcSignal),
+    rc_battery: toNullableNumber(
+      source.remote_controller_status?.battery_percentage ??
+      source.rc_battery ?? source.rcBattery ?? source.rc_battery_percent ??
+      aircraftStatus.rc_battery
+    )
   }
 }
 
@@ -793,7 +827,7 @@ const persistStateToLocal = (storeState) => {
       })
     )
   } catch (error) {
-    console.warn('Failed to persist local telemetry cache:', error)
+    logger.warn('Failed to persist local telemetry cache:', error)
   }
 }
 
@@ -994,6 +1028,36 @@ export const useDroneStore = defineStore('drone', {
         const previousPoint = state.flightTrack[index]
         return total + haversineDistanceMeters(previousPoint, point)
       }, 0)
+    },
+    flightDistanceMeters(state) {
+      return this.trackDistanceMeters
+    },
+    flightDurationSeconds(state) {
+      if (!state.flightStartTime) {
+        return 0
+      }
+      const now = state.droneState.is_flying
+        ? Date.now() / 1000
+        : parseTimestampToSeconds(state.droneState.timestamp, Date.now() / 1000)
+      return Math.max(0, now - state.flightStartTime)
+    },
+    flightDistanceDisplay() {
+      const meters = this.flightDistanceMeters
+      if (meters >= 1000) {
+        return `${(meters / 1000).toFixed(2)} km`
+      }
+      return `${Math.round(meters)} m`
+    },
+    flightDurationDisplay() {
+      const seconds = this.flightDurationSeconds
+      if (seconds <= 0) return '--'
+      const h = Math.floor(seconds / 3600)
+      const m = Math.floor((seconds % 3600) / 60)
+      const s = Math.floor(seconds % 60)
+      if (h > 0) {
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+      }
+      return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
     },
     localArchiveCount(state) {
       return state.telemetryArchive.length
@@ -1293,7 +1357,18 @@ export const useDroneStore = defineStore('drone', {
         this.flightTrack = []
       }
 
+      if (mergedState.is_flying && !previousState.is_flying) {
+        this.flightStartTime = mergedState.timestamp || (Date.now() / 1000)
+        logger.info('Drone takeoff detected', { timestamp: this.flightStartTime })
+      }
+      if (!mergedState.is_flying && previousState.is_flying) {
+        logger.info('Drone landing detected', { flightDuration: this.flightDurationSeconds })
+        this.flightStartTime = null
+      }
+
       this.droneState = mergedState
+
+      recordTelemetryTime()
 
       this.history.push(buildHistoryEntry(mergedState))
 
@@ -1394,7 +1469,7 @@ export const useDroneStore = defineStore('drone', {
         return records
       } catch (error) {
         this.flightSessionsError = '历史架次加载失败'
-        console.warn('Failed to load flight sessions:', error)
+        logger.warn('Failed to load flight sessions:', error)
         return []
       } finally {
         this.flightSessionsLoading = false
@@ -1484,7 +1559,7 @@ export const useDroneStore = defineStore('drone', {
         return true
       } catch (error) {
         this.flightSessionsError = '删除历史架次失败'
-        console.warn(`Failed to delete flight session ${flightId}:`, error)
+        logger.warn(`Failed to delete flight session ${flightId}:`, error)
         return false
       } finally {
         this.flightSessionsDeletingIds = this.flightSessionsDeletingIds.filter((id) => id !== flightId)
@@ -1504,6 +1579,8 @@ export const useDroneStore = defineStore('drone', {
     },
     addRawFrame(framePayload, fallbackTimestamp = null) {
       const rawFrame = buildRawStreamFrame(framePayload, fallbackTimestamp)
+
+      recordTelemetryTime()
 
       this.rawStream.push(rawFrame)
       applyLiveFrameCache(this, rawFrame)
@@ -1582,6 +1659,14 @@ export const useDroneStore = defineStore('drone', {
       schedulePersistence(this)
     },
     setConnectionStatus(status) {
+      if (!status && this.isConnected) {
+        this.connectionLostCount += 1
+        this.lastDisconnectedAt = Date.now()
+        logger.warn('Connection lost', { count: this.connectionLostCount })
+      }
+      if (status && !this.isConnected) {
+        logger.info('Connection restored', { disconnectedAt: this.lastDisconnectedAt })
+      }
       this.isConnected = status
     }
   }

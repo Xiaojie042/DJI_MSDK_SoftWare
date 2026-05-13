@@ -12,6 +12,7 @@ from app.runtime_config import RuntimeConfigState
 class HealthResponse(BaseModel):
     status: str = "ok"
     tcp_server: str = "running"
+    tcp_clients: int = 0
     mqtt_connected: bool = False
     websocket_clients: int = 0
 
@@ -125,6 +126,7 @@ class MqttTargetStatusResponse(BaseModel):
 class SystemStatusResponse(BaseModel):
     status: str = "ok"
     tcp_server_port: int
+    tcp_clients: int = 0
     mqtt_broker: str
     mqtt_connected: bool
     mqtt_targets: dict[str, MqttTargetStatusResponse] = Field(default_factory=dict)
@@ -134,6 +136,22 @@ class SystemStatusResponse(BaseModel):
     flight_sessions_path: str
     runtime_config_path: str
     uptime_seconds: Optional[float] = None
+
+
+class LogEntryRequest(BaseModel):
+    time: str
+    level: str = "INFO"
+    message: str
+    data: Optional[str] = None
+
+
+class LogBatchRequest(BaseModel):
+    entries: list[LogEntryRequest]
+
+
+class LogResponse(BaseModel):
+    received: int
+    saved: bool = True
 
 
 RuntimeConfigRequest = RuntimeConfigState

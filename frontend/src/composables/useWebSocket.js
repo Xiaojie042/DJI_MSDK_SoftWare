@@ -1,6 +1,7 @@
 import { effectScope, onUnmounted, ref, watch } from 'vue'
 import { useDroneStore } from '@/stores/droneStore'
 import { useRuntimeConfigStore } from '@/stores/runtimeConfigStore'
+import logger from '@/utils/logger'
 
 const sharedSocket = ref(null)
 let reconnectTimer = null
@@ -101,7 +102,7 @@ export function useWebSocket() {
 
       store.hydrateFromBackend(historyPayload?.records || [], rawPayload?.records || [])
     } catch (error) {
-      console.warn('Failed to hydrate telemetry from backend:', error)
+      logger.warn('Failed to hydrate telemetry from backend:', error)
     }
   }
 
@@ -124,9 +125,10 @@ export function useWebSocket() {
       sharedSocket.value = nextSocket
 
       nextSocket.onopen = () => {
-        console.log('WebSocket Connected')
+        logger.info('WebSocket connected', { url: targetUrl })
         store.setConnectionStatus(true)
         clearReconnectTimer()
+        runtimeConfigStore.startDeviceMonitor()
         void runtimeConfigStore.fetchBackendStatus()
       }
 
@@ -144,12 +146,12 @@ export function useWebSocket() {
             store.updateDroneState(data)
           }
         } catch (error) {
-          console.error('Error parsing WS message:', error)
+          logger.error('Error parsing WS message:', error)
         }
       }
 
       nextSocket.onclose = () => {
-        console.log('WebSocket Disconnected')
+        logger.warn('WebSocket disconnected')
         store.setConnectionStatus(false)
         if (sharedSocket.value === nextSocket) {
           sharedSocket.value = null
@@ -158,11 +160,11 @@ export function useWebSocket() {
       }
 
       nextSocket.onerror = (error) => {
-        console.error('WebSocket Error:', error)
+        logger.error('WebSocket error:', error)
         nextSocket.close()
       }
     } catch (error) {
-      console.error('WS connection initiation failed:', error)
+      logger.error('WS connection initiation failed:', error)
       scheduleReconnect()
     }
   }
@@ -170,7 +172,7 @@ export function useWebSocket() {
   const scheduleReconnect = () => {
     if (!reconnectTimer) {
       reconnectTimer = setInterval(() => {
-        console.log('Attempting to reconnect...')
+        logger.debug('Attempting to reconnect...')
         connect(getSocketUrl())
       }, 3000)
     }

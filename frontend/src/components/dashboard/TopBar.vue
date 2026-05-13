@@ -1,9 +1,11 @@
 <script setup>
 import { computed } from 'vue'
 import { useDroneStore } from '@/stores/droneStore'
+import { useRuntimeConfigStore } from '@/stores/runtimeConfigStore'
 import ConnectionConfigEntry from '@/components/dashboard/ConnectionConfigEntry.vue'
 
 const store = useDroneStore()
+const configStore = useRuntimeConfigStore()
 const displayDroneState = computed(() => store.currentDroneState)
 const displayFlightPayload = computed(() => store.currentFlightPayload)
 
@@ -108,7 +110,7 @@ const rcSignal = computed(() => {
   const value = displayDroneState.value.rc_signal
   if (value === null || value === undefined) {
     return {
-      text: '--',
+      text: '信号: --',
       status: 'normal'
     }
   }
@@ -121,13 +123,43 @@ const rcSignal = computed(() => {
   }
 
   return {
-    text: `${value}%`,
+    text: `信号: ${value}%`,
     status
   }
 })
 
+const rcBattery = computed(() => {
+  const value = displayDroneState.value.rc_battery
+  if (value === null || value === undefined) {
+    return {
+      text: '--',
+      status: 'normal',
+      available: false
+    }
+  }
+
+  let status = 'success'
+  if (value < 20) {
+    status = 'danger'
+  } else if (value < 40) {
+    status = 'warning'
+  }
+
+  return {
+    text: `${value}%`,
+    status,
+    available: true
+  }
+})
+
 const droneBattery = computed(() => {
-  const value = displayDroneState.value.battery.percent || 0
+  const value = displayDroneState.value.battery.percent
+  const voltage = displayDroneState.value.battery.voltage
+
+  if (value <= 0 && voltage <= 0) {
+    return { value: 0, status: 'normal', voltage: 0 }
+  }
+
   let status = 'success'
   if (value < 20) {
     status = 'danger'
@@ -137,16 +169,48 @@ const droneBattery = computed(() => {
 
   return {
     value,
-    status
+    status,
+    voltage
   }
 })
+
+const connectionStatus = computed(() => ({
+  ...configStore.deviceConnectionState,
+  text: configStore.deviceConnectionState.label,
+  status: configStore.deviceConnectionState.status
+}))
+
+const flightInfo = computed(() => ({
+  distance: store.flightDistanceDisplay,
+  duration: store.flightDurationDisplay,
+  isFlying: displayDroneState.value.is_flying
+}))
 </script>
 
 <template>
   <header class="top-bar glass-panel">
-    <div class="logo">
-      <p class="eyebrow">Flight Command Center</p>
-      <h1 class="text-gradient">DJI 飞行指挥中心</h1>
+    <div class="top-bar__left">
+      <div class="logo">
+        <p class="eyebrow">Flight Command Center</p>
+        <h1 class="text-gradient">DJI 飞行指挥中心</h1>
+      </div>
+
+      <div class="status-left">
+        <div class="status-item" :class="connectionStatus.status" :title="`TCP客户端: ${connectionStatus.tcpClients}, 断联次数: ${store.connectionLostCount}`">
+          <span class="emoji-icon">{{ connectionStatus.state === 'disconnected' ? '⚠️' : connectionStatus.state === 'connected_no_data' ? '⏳' : '🔗' }}</span>
+          <span class="value">{{ connectionStatus.text }}</span>
+        </div>
+
+        <div class="status-item" v-if="flightInfo.isFlying || flightInfo.distance !== '0 m'" :class="{ success: flightInfo.isFlying }">
+          <span class="emoji-icon">📏</span>
+          <span class="value">{{ flightInfo.distance }}</span>
+        </div>
+
+        <div class="status-item" v-if="flightInfo.isFlying || flightInfo.duration !== '--'" :class="{ success: flightInfo.isFlying }">
+          <span class="emoji-icon">⏱️</span>
+          <span class="value">{{ flightInfo.duration }}</span>
+        </div>
+      </div>
     </div>
 
     <div class="top-bar__center">
@@ -179,6 +243,11 @@ const droneBattery = computed(() => {
         <span class="value">{{ rcSignal.text }}</span>
       </div>
 
+      <div class="status-item" v-if="rcBattery.available" :class="rcBattery.status">
+        <span class="emoji-icon">🔋</span>
+        <span class="value">遥控: {{ rcBattery.text }}</span>
+      </div>
+
       <div class="status-item" :class="droneBattery.status">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
           <rect x="2" y="7" width="18" height="10" rx="2" stroke-width="2" />
@@ -194,18 +263,32 @@ const droneBattery = computed(() => {
 <style scoped>
 .top-bar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.2fr) 300px minmax(0, 1fr);
   align-items: center;
-  gap: 0.85rem;
+  gap: 0.7rem;
   padding: 0.24rem 1.1rem;
   min-height: 55px;
   border-radius: 22px;
   flex-shrink: 0;
 }
 
-.logo {
+.top-bar__left {
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
   justify-self: start;
+}
+
+.logo {
+  flex-shrink: 0;
+}
+
+.status-left {
+  display: flex;
+  align-items: center;
+  gap: 0.48rem;
+  min-width: 0;
 }
 
 .eyebrow {
@@ -240,11 +323,11 @@ const droneBattery = computed(() => {
 .status-bar {
   min-width: 0;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: flex-end;
   justify-self: end;
-  gap: 0.7rem;
+  gap: 0.48rem;
 }
 
 .status-item {
@@ -361,6 +444,10 @@ const droneBattery = computed(() => {
   .top-bar {
     grid-template-columns: 1fr;
     padding: 1rem;
+  }
+
+  .top-bar__left {
+    flex-wrap: wrap;
   }
 
   .top-bar__center {

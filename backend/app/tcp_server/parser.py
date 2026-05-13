@@ -41,12 +41,18 @@ class TcpDataParser:
         decode complete JSON objects from the stream, and falls back to
         newline-delimited handling when the current buffer contains malformed
         lines.
+
+        Raw data is sanitized to remove control characters that would break JSON
+        parsing while preserving intentional newlines used as record delimiters.
         """
         try:
-            self._buffer += self._utf8_decoder.decode(data)
+            decoded = self._utf8_decoder.decode(data)
         except UnicodeDecodeError as exc:
             logger.warning("TCP payload is not valid UTF-8", error=str(exc))
             return []
+
+        decoded = self._sanitize_json_text(decoded)
+        self._buffer += decoded
 
         results: list[StreamMessage] = []
 
@@ -61,7 +67,10 @@ class TcpDataParser:
             except json.JSONDecodeError as exc:
                 newline_index = chunk.find("\n")
                 if newline_index == -1:
-                    # Most likely an incomplete JSON object, keep buffering.
+                    # After sanitization, this should not normally happen.
+                    # If it does, the data is malformed beyond recovery.
+                    logger.warning("Skipping unrecoverable JSON chunk", error=str(exc), raw=chunk[:200])
+                    self._buffer = ""
                     break
 
                 line = chunk[:newline_index].strip()
@@ -87,6 +96,29 @@ class TcpDataParser:
                 results.append(message)
 
         return results
+
+    @staticmethod
+    def _sanitize_json_text(text: str) -> str:
+        """
+        Remove or replace control characters that break JSON parsing.
+
+        The standard json module rejects unescaped control characters inside
+        string values. DJI MSDK / PSDK data streams occasionally contain
+        such characters (e.g. bare newlines, tabs, null bytes) mixed into
+        JSON payloads, causing "Invalid control character" errors.
+
+        We replace all control characters (U+0000-U+001F, U+007F-U+009F)
+        with spaces, since json.JSONDecoder.raw_decode handles concatenated
+        JSON without needing record delimiters.
+        """
+        result = []
+        for ch in text:
+            code = ord(ch)
+            if code <= 0x1F or (0x7F <= code <= 0x9F):
+                result.append(' ')
+            else:
+                result.append(ch)
+        return ''.join(result)
 
     def _build_message(self, payload: Any) -> Optional[StreamMessage]:
         if isinstance(payload, dict) and payload.get("type") == "psdk_data":

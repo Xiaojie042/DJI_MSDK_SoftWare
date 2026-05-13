@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any, Optional
 
@@ -15,6 +16,8 @@ from app.api.schemas import (
     FlightSessionSummaryResponse,
     FlightSessionsResponse,
     HealthResponse,
+    LogBatchRequest,
+    LogResponse,
     RawHistoryRecordResponse,
     RawHistoryResponse,
     RuntimeConfigRequest,
@@ -47,6 +50,12 @@ def get_mqtt():
     return mqtt_client
 
 
+def get_tcp_server():
+    from app.main import tcp_server
+
+    return tcp_server
+
+
 def get_runtime_config_service():
     from app.main import runtime_config_service
 
@@ -69,9 +78,11 @@ def get_ws_manager():
 async def health_check() -> HealthResponse:
     mqtt = get_mqtt()
     ws = get_ws_manager()
+    tcp = get_tcp_server()
     return HealthResponse(
         status="ok",
-        tcp_server="running",
+        tcp_server="running" if tcp.is_running else "stopped",
+        tcp_clients=tcp.client_count,
         mqtt_connected=mqtt.is_connected,
         websocket_clients=ws.connection_count,
     )
@@ -81,10 +92,12 @@ async def health_check() -> HealthResponse:
 async def system_status() -> SystemStatusResponse:
     mqtt = get_mqtt()
     ws = get_ws_manager()
+    tcp = get_tcp_server()
     runtime_config = get_runtime_config_service().get_config()
     return SystemStatusResponse(
         status="ok",
         tcp_server_port=runtime_config.connection.device_listen_port,
+        tcp_clients=tcp.client_count,
         mqtt_broker=mqtt.primary_broker,
         mqtt_connected=mqtt.is_connected,
         mqtt_targets=mqtt.status_snapshot,
@@ -243,3 +256,23 @@ async def get_live_logs(
     limit: int = Query(default=200, ge=1, le=500, description="Max live gateway log lines"),
 ) -> LiveLogsResponse:
     return get_live_gateway_service().get_logs(limit=limit)
+
+
+@router.post("/logs", response_model=LogResponse)
+async def save_frontend_logs(payload: LogBatchRequest) -> LogResponse:
+    """Receive frontend debug logs and save to the log/ directory."""
+    log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "log")
+    os.makedirs(log_dir, exist_ok=True)
+
+    log_file = os.path.join(log_dir, f"frontend-debug-{time.strftime('%Y%m%d')}.log")
+
+    try:
+        with open(log_file, "a", encoding="utf-8") as fh:
+            for entry in payload.entries:
+                line = f"[{entry.level}] {entry.time} {entry.message}"
+                if entry.data:
+                    line += f" | {entry.data}"
+                fh.write(line + "\n")
+        return LogResponse(received=len(payload.entries), saved=True)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to write log file: {exc}") from exc
