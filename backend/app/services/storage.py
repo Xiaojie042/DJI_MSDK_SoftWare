@@ -167,7 +167,7 @@ class StorageService:
             "telemetry": normalized_payload,
             "raw_payload": raw_payload,
         }
-        with self._raw_history_path.open("a", encoding="utf-8") as f:
+        with self._raw_history_path.open("a", encoding="utf-8", newline="") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
     def _append_psdk_history(self, message: PsdkDataMessage) -> None:
@@ -182,7 +182,7 @@ class StorageService:
             "warnings": message.warnings,
             "raw_payload": message.raw_payload or {},
         }
-        with self._raw_history_path.open("a", encoding="utf-8") as f:
+        with self._raw_history_path.open("a", encoding="utf-8", newline="") as f:
             f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
     @staticmethod
@@ -190,13 +190,20 @@ class StorageService:
         return state.model_dump(mode="json", exclude={"raw_payload"})
 
     @staticmethod
+    def _sanitize_raw_payload(payload: dict[str, Any]) -> dict[str, Any]:
+        """Re-serialize and re-parse to strip control characters from string values."""
+        try:
+            return json.loads(json.dumps(payload, ensure_ascii=False))
+        except (TypeError, ValueError):
+            return payload
+
+    @staticmethod
     def _build_raw_payload(
         state: DroneState,
         normalized_payload: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        if state.raw_payload is not None:
-            return state.raw_payload
-        return normalized_payload or state.model_dump(mode="json", exclude={"raw_payload"})
+        raw = state.raw_payload if state.raw_payload is not None else (normalized_payload or state.model_dump(mode="json", exclude={"raw_payload"}))
+        return StorageService._sanitize_raw_payload(raw)
 
     async def _sync_flight_session_with_telemetry(
         self,
@@ -412,11 +419,13 @@ class StorageService:
 
     def _write_json_file(self, path: Path, payload: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w", encoding="utf-8") as f:
+        tmp_path = path.with_suffix(".tmp")
+        with tmp_path.open("w", encoding="utf-8", newline="") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
+        tmp_path.replace(path)
 
     def _read_json_file(self, path: Path) -> dict[str, Any]:
-        with path.open("r", encoding="utf-8") as f:
+        with path.open("r", encoding="utf-8", newline="") as f:
             return json.load(f)
 
     def _resolve_flight_session_path(self, flight_id: str) -> Path:
@@ -581,7 +590,7 @@ class StorageService:
             return
 
         retained_lines: list[str] = []
-        with self._raw_history_path.open("r", encoding="utf-8") as f:
+        with self._raw_history_path.open("r", encoding="utf-8", newline="") as f:
             for line in f:
                 text = line.strip()
                 if not text:
@@ -596,7 +605,7 @@ class StorageService:
                 if not self._belongs_to_session(payload, drone_id, start_time, end_time):
                     retained_lines.append(line)
 
-        with self._raw_history_path.open("w", encoding="utf-8") as f:
+        with self._raw_history_path.open("w", encoding="utf-8", newline="") as f:
             f.writelines(retained_lines)
 
     def _belongs_to_session(
@@ -731,7 +740,7 @@ class StorageService:
             return []
 
         tail: deque[str] = deque(maxlen=limit)
-        with self._raw_history_path.open("r", encoding="utf-8") as f:
+        with self._raw_history_path.open("r", encoding="utf-8", newline="") as f:
             for line in f:
                 text = line.strip()
                 if text:

@@ -267,7 +267,7 @@ async def save_frontend_logs(payload: LogBatchRequest) -> LogResponse:
     log_file = os.path.join(log_dir, f"frontend-debug-{time.strftime('%Y%m%d')}.log")
 
     try:
-        with open(log_file, "a", encoding="utf-8") as fh:
+        with open(log_file, "a", encoding="utf-8", newline="") as fh:
             for entry in payload.entries:
                 line = f"[{entry.level}] {entry.time} {entry.message}"
                 if entry.data:

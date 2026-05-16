@@ -916,7 +916,7 @@ class LiveGatewayService:
 
         try:
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
-            with self.log_path.open("a", encoding="utf-8") as file:
+            with self.log_path.open("a", encoding="utf-8", newline="") as file:
                 file.write(f"{entry.time} [{entry.level}] [{entry.source}] {entry.message}\n")
         except OSError:
             pass
