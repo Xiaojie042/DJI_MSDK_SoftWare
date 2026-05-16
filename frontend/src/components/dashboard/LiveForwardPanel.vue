@@ -954,11 +954,10 @@ onUnmounted(() => {
         <button
           type="button"
           class="live-forward__restart"
-          :disabled="liveActionBusy"
-          title="按顺序重启 RTMP 与 GB28181 转发服务"
-          @click.stop="restartLiveServices"
+          :title="httpFlvUrl"
+          @click.stop="openPreview"
         >
-          {{ loading.restart ? '重启中' : '重启服务' }}
+          视频预览
         </button>
         <span class="state-dot" :class="`state-dot--${rtmpTone}`"></span>
         <button
@@ -1159,8 +1158,13 @@ onUnmounted(() => {
       </div>
 
       <footer class="panel-actions">
-        <button type="button" class="control-btn" :title="httpFlvUrl" @click="openPreview">
-          打开预览
+        <button
+          type="button"
+          class="control-btn"
+          :disabled="liveActionBusy"
+          @click="restartLiveServices"
+        >
+          {{ loading.restart ? '重启中' : '重启服务' }}
         </button>
         <button type="button" class="control-btn" :disabled="loading.config || loading.refresh" @click="refreshStatus">
           刷新状态

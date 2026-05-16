@@ -6,6 +6,9 @@ import config from '@/utils/config'
 const store = useDroneStore()
 const INVALID_MARKER = '///'
 
+const visibilityHistory = ref([])
+const VISIBILITY_HISTORY_LIMIT = 5
+
 const displayDroneState = computed(() => store.currentDroneState)
 const latestWeatherFrame = computed(() => store.currentWeatherFrame)
 const latestVisibilityFrame = computed(() => store.currentVisibilityFrame)
@@ -90,7 +93,11 @@ const weather = computed(() => {
     altitude,
     visibility,
     compassAngle: Number.isFinite(windDirection) ? windDirection : 0,
-    visibilityPercent: Number.isFinite(visibility) ? Math.min((visibility / 10000) * 100, 100) : 0
+    visibilityPercent: Number.isFinite(visibility)
+      ? Math.min((visibility / 10000) * 100, 100)
+      : visibilityHistory.value.length > 0
+        ? Math.min((visibilityHistory.value.reduce((a, b) => a + b, 0) / visibilityHistory.value.length / 10000) * 100, 100)
+        : 0
   }
 })
 
@@ -118,11 +125,21 @@ const detailRows = computed(() => [
 ])
 
 const visibilityDisplay = computed(() => {
-  if (!Number.isFinite(weather.value.visibility)) {
-    return '/'
+  if (Number.isFinite(weather.value.visibility)) {
+    const value = Math.round(weather.value.visibility)
+    visibilityHistory.value.push(value)
+    if (visibilityHistory.value.length > VISIBILITY_HISTORY_LIMIT) {
+      visibilityHistory.value.shift()
+    }
+    return `${value} m`
   }
 
-  return `${Math.round(weather.value.visibility)} m`
+  if (visibilityHistory.value.length > 0) {
+    const avg = Math.round(visibilityHistory.value.reduce((a, b) => a + b, 0) / visibilityHistory.value.length)
+    return ` ${avg} m`
+  }
+
+  return '/'
 })
 
 const normalizeAngle = (value) => {

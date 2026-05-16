@@ -107,34 +107,11 @@ const linkQuality = computed(() => {
 })
 
 const rcSignal = computed(() => {
-  const value = displayDroneState.value.rc_signal
-  if (value === null || value === undefined) {
-    return {
-      text: '信号: --',
-      status: 'normal'
-    }
-  }
-
-  let status = 'success'
-  if (value < 20) {
-    status = 'danger'
-  } else if (value < 50) {
-    status = 'warning'
-  }
-
-  return {
-    text: `信号: ${value}%`,
-    status
-  }
-})
-
-const rcBattery = computed(() => {
   const value = displayDroneState.value.rc_battery
   if (value === null || value === undefined) {
     return {
       text: '--',
-      status: 'normal',
-      available: false
+      status: 'normal'
     }
   }
 
@@ -147,8 +124,7 @@ const rcBattery = computed(() => {
 
   return {
     text: `${value}%`,
-    status,
-    available: true
+    status
   }
 })
 
@@ -243,11 +219,6 @@ const flightInfo = computed(() => ({
         <span class="value">{{ rcSignal.text }}</span>
       </div>
 
-      <div class="status-item" v-if="rcBattery.available" :class="rcBattery.status">
-        <span class="emoji-icon">🔋</span>
-        <span class="value">遥控: {{ rcBattery.text }}</span>
-      </div>
-
       <div class="status-item" :class="droneBattery.status">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
           <rect x="2" y="7" width="18" height="10" rx="2" stroke-width="2" />
@@ -289,6 +260,7 @@ const flightInfo = computed(() => ({
   align-items: center;
   gap: 0.48rem;
   min-width: 0;
+  padding-left: 150px;
 }
 
 .eyebrow {

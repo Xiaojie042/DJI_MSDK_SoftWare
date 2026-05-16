@@ -93,7 +93,7 @@ class _ManagedMqttTarget:
             client.tls_set()
 
         client.will_set(
-            topic=topics.heartbeat(self._config.topic),
+            topic=topics.heartbeat(),
             payload=self._heartbeat_payload("offline"),
             qos=1,
             retain=True,
@@ -108,7 +108,6 @@ class _ManagedMqttTarget:
                 "MQTT target connecting",
                 target=self.name,
                 broker=self.broker,
-                topic=self._config.topic,
             )
         except Exception as exc:
             self._client = None
@@ -129,7 +128,7 @@ class _ManagedMqttTarget:
         try:
             if was_connected:
                 client.publish(
-                    topic=topics.heartbeat(self._config.topic),
+                    topic=topics.heartbeat(),
                     payload=self._heartbeat_payload("offline"),
                     qos=1,
                     retain=True,
@@ -167,7 +166,6 @@ class _ManagedMqttTarget:
             "connected": self._connected,
             "broker": self.broker,
             "client_id": self._config.client_id,
-            "topic": self._config.topic,
             "tls": self._config.tls,
             "last_error": self._last_error,
         }
@@ -188,7 +186,7 @@ class _ManagedMqttTarget:
             self._connected = True
             self._last_error = ""
             client.publish(
-                topic=topics.heartbeat(self._config.topic),
+                topic=topics.heartbeat(),
                 payload=self._heartbeat_payload("online"),
                 qos=1,
                 retain=True,
@@ -219,7 +217,8 @@ class MqttClient:
     def __init__(self, *, client_factory: Callable[..., mqtt.Client] = mqtt.Client) -> None:
         self._client_factory = client_factory
         self._started = False
-        self._psdk_lock = threading.Lock()
+        self._lock = threading.Lock()
+        self._current_drone_id = ""
         self._latest_weather_payload: Optional[dict[str, Any]] = None
         self._latest_visibility_payload: Optional[dict[str, Any]] = None
         self._targets = {
@@ -228,7 +227,6 @@ class MqttClient:
                 RuntimeMqttTargetConfig(
                     enabled=False,
                     client_id="drone-monitor-local",
-                    topic="drone/telemetry",
                 ),
                 client_factory=self._client_factory,
             ),
@@ -237,7 +235,6 @@ class MqttClient:
                 RuntimeMqttTargetConfig(
                     enabled=False,
                     client_id="drone-monitor-cloud",
-                    topic="drone/telemetry/cloud",
                 ),
                 client_factory=self._client_factory,
             ),
@@ -269,27 +266,48 @@ class MqttClient:
             target.disconnect()
 
     async def publish_telemetry(self, state: DroneState) -> None:
-        payload = state.model_dump_json()
+        drone_id = state.drone_id or topics.DEFAULT_DRONE_ID
+        self._current_drone_id = drone_id
+
+        payload = self._build_unified_payload(state)
+        topic = topics.data(drone_id)
         for target in self._targets.values():
-            target.publish_json(topics.telemetry(target.config.topic), payload, qos=0)
+            target.publish_json(topic, payload, qos=0)
 
     async def publish_alert(self, category: str, message: dict[str, Any]) -> None:
+        drone_id = self._current_drone_id or topics.DEFAULT_DRONE_ID
         payload = json.dumps(message, ensure_ascii=False)
+        topic = topics.alert(drone_id, category)
         for target in self._targets.values():
-            target.publish_json(topics.alert(target.config.topic, category), payload, qos=1)
+            target.publish_json(topic, payload, qos=1)
 
     async def publish_psdk_data(self, message: PsdkDataMessage) -> None:
         normalized_device_type = self._normalize_device_type(message.device_type)
+        current_payload = message.model_dump(mode="json")
 
-        if normalized_device_type in WEATHER_AGGREGATE_DEVICE_TYPES:
-            payload = self._build_weather_aggregate_payload(message, normalized_device_type)
-            topic_builder = topics.psdk_weather
-        else:
-            payload = message.model_dump_json()
-            topic_builder = lambda prefix: topics.psdk(prefix, message.device_type)
+        with self._lock:
+            if normalized_device_type == "weather":
+                self._latest_weather_payload = current_payload
+            elif normalized_device_type == "visibility":
+                self._latest_visibility_payload = current_payload
 
+            weather = deepcopy(self._latest_weather_payload)
+            visibility = deepcopy(self._latest_visibility_payload)
+
+        drone_id = self._current_drone_id or topics.DEFAULT_DRONE_ID
+        topic = topics.data(drone_id)
+
+        unified = {
+            "type": "psdk_update",
+            "drone_id": drone_id,
+            "psdk_data": {
+                "weather": weather,
+                "visibility": visibility,
+            },
+        }
+        payload = json.dumps(unified, ensure_ascii=False)
         for target in self._targets.values():
-            target.publish_json(topic_builder(target.config.topic), payload, qos=0)
+            target.publish_json(topic, payload, qos=0)
 
     @property
     def is_connected(self) -> bool:
@@ -310,52 +328,18 @@ class MqttClient:
             for name, target in self._targets.items()
         }
 
-    def _build_weather_aggregate_payload(self, message: PsdkDataMessage, normalized_device_type: str) -> str:
-        current_payload = message.model_dump(mode="json")
+    def _build_unified_payload(self, state: DroneState) -> str:
+        with self._lock:
+            weather = deepcopy(self._latest_weather_payload)
+            visibility = deepcopy(self._latest_visibility_payload)
 
-        with self._psdk_lock:
-            if normalized_device_type == "weather":
-                self._latest_weather_payload = current_payload
-            elif normalized_device_type == "visibility":
-                self._latest_visibility_payload = current_payload
-
-            weather_payload = deepcopy(self._latest_weather_payload)
-            visibility_payload = deepcopy(self._latest_visibility_payload)
-
-        merged_payload = weather_payload or self._create_weather_fallback_payload(current_payload)
-        merged_payload["device_type"] = "weather"
-        merged_payload["trigger_device_type"] = normalized_device_type
-        merged_payload["visibility_payload"] = visibility_payload
-        merged_payload["raw_payload"] = self._merge_raw_payload(
-            merged_payload.get("raw_payload"),
-            visibility_payload,
-        )
-        return json.dumps(merged_payload, ensure_ascii=False)
-
-    def _create_weather_fallback_payload(self, current_payload: dict[str, Any]) -> dict[str, Any]:
-        fallback = deepcopy(current_payload)
-        fallback["device_type"] = "weather"
-        fallback["data"] = ""
-        fallback["parsed_data"] = None
-        fallback["warnings"] = []
-
-        raw_payload = dict(fallback.get("raw_payload") or {})
-        raw_payload["device_type"] = "weather"
-        fallback["raw_payload"] = raw_payload or None
-        return fallback
-
-    def _merge_raw_payload(
-        self,
-        raw_payload: Optional[dict[str, Any]],
-        visibility_payload: Optional[dict[str, Any]],
-    ) -> Optional[dict[str, Any]]:
-        merged = dict(raw_payload or {})
-        merged["visibility_payload"] = (
-            deepcopy(visibility_payload.get("raw_payload"))
-            if visibility_payload and visibility_payload.get("raw_payload") is not None
-            else None
-        )
-        return merged or None
+        unified = state.model_dump(mode="json")
+        unified["type"] = "telemetry"
+        unified["psdk_data"] = {
+            "weather": weather,
+            "visibility": visibility,
+        }
+        return json.dumps(unified, ensure_ascii=False)
 
     def _normalize_device_type(self, device_type: Any) -> str:
         return str(device_type or "").strip().lower() or "unknown"
