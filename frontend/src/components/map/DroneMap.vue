@@ -45,6 +45,7 @@ const historyTrackPopupOptions = {
   offset: [0, -6],
 }
 
+
 const currentDroneState = computed(() => store.currentDroneState)
 const hasLivePosition = computed(() =>
   Number.isFinite(store.droneState.position.latitude) &&
@@ -436,7 +437,10 @@ const popupTelemetry = computed(() => {
     position.altitude
   )
   const modelName = normalizeModelName(readFirstValue(source, ['aircraft_name', 'product_type'], 'M400'))
-  const verticalSpeed = toNumber(readFirstValue(source, ['speed.vertical', 'vertical_speed'], 0), 0)
+  const verticalSpeed = toNumber(
+    readFirstValue(source, ['speed.vertical', 'vertical_speed', 'velocity.vertical', 'velocity.z', 'velocity.Z', 'speed_z', 'Z', 'z'], 0),
+    0
+  )
   return {
     pitch,
     roll,

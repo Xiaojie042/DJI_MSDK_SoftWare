@@ -179,6 +179,8 @@ cd E:\github_project\DJI_MSDK_SoftWare
 .\Scripts\build_release_venv.bat
 ```
 
+`build_release.bat` 会先尝试 `backend/.venv`。如果该环境不可用或缺少 `PyInstaller`，脚本会自动继续尝试 conda 打包入口，减少换机器或环境不一致时的一键打包失败。
+
 ### 方案 B：使用系统 `conda` 环境
 
 ```powershell

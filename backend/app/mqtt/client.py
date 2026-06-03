@@ -291,24 +291,6 @@ class MqttClient:
             elif normalized_device_type == "visibility":
                 self._latest_visibility_payload = current_payload
 
-            weather = deepcopy(self._latest_weather_payload)
-            visibility = deepcopy(self._latest_visibility_payload)
-
-        drone_id = self._current_drone_id or topics.DEFAULT_DRONE_ID
-        topic = topics.data(drone_id)
-
-        unified = {
-            "type": "psdk_update",
-            "drone_id": drone_id,
-            "psdk_data": {
-                "weather": weather,
-                "visibility": visibility,
-            },
-        }
-        payload = json.dumps(unified, ensure_ascii=False)
-        for target in self._targets.values():
-            target.publish_json(topic, payload, qos=0)
-
     @property
     def is_connected(self) -> bool:
         return any(target.is_connected for target in self._targets.values())

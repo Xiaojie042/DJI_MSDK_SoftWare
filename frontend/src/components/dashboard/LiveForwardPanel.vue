@@ -68,12 +68,14 @@ const createDefaultConfig = () => ({
     port: 1935,
     app: 'live',
     stream: 'drone',
-    zlm_executable_path: '',
+    zlm_executable_path: 'tools\\zlmediakit\\MediaServer.exe',
     zlm_work_dir: '',
     zlm_config_path: '',
     zlm_http_host: '127.0.0.1',
     zlm_http_port: 18080,
-    zlm_secret: '035c73f7-bb44-4885-a715-d9eb2d1925cc'
+    zlm_secret: '035c73f7-bb44-4885-a715-d9eb2d1925cc',
+    target_bitrate_kbps: 0,
+    target_fps: 0
   },
   gb28181: {
     sip_server_ip: '',
@@ -91,7 +93,7 @@ const createDefaultConfig = () => ({
     auto_reconnect: true,
     heartbeat_interval: 60,
     rtmp_input_url: 'rtmp://127.0.0.1/live/drone',
-    bridge_executable_path: '',
+    bridge_executable_path: 'tools\\gb28181-bridge\\gb28181-bridge.exe',
     bridge_work_dir: '',
     bridge_config_path: '',
     bridge_command_template: ''
@@ -1012,7 +1014,6 @@ onUnmounted(() => {
       </div>
 
       <p v-if="errorMessage" class="message message--error">{{ errorMessage }}</p>
-      <p v-else-if="statusWarningText" class="message message--warning">{{ statusWarningText }}</p>
       <p v-else-if="infoMessage" class="message message--info">{{ infoMessage }}</p>
       <p class="dependency-line">{{ dependencyText }}</p>
 
@@ -1046,6 +1047,17 @@ onUnmounted(() => {
             <label class="field">
               <span>ZLM HTTP 端口</span>
               <input v-model.number="draft.rtmp.zlm_http_port" type="number" min="1" max="65535" />
+            </label>
+          </div>
+
+          <div class="field-grid field-grid--compact">
+            <label class="field">
+              <span>默认码率(kbps)</span>
+              <input v-model.number="draft.rtmp.target_bitrate_kbps" type="number" min="0" step="0.1" />
+            </label>
+            <label class="field">
+              <span>默认帧率(fps)</span>
+              <input v-model.number="draft.rtmp.target_fps" type="number" min="0" step="0.1" />
             </label>
           </div>
 

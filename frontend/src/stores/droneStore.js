@@ -766,7 +766,10 @@ const normalizeDroneStatePayload = (payload = {}) => {
         velocity.horizontal ?? velocity.horizontal_speed ?? source.horizontal_speed ?? source.horizontalSpeed,
         0
       ),
-      vertical: toFiniteNumber(velocity.vertical ?? source.vertical_speed ?? source.verticalSpeed, 0)
+      vertical: toFiniteNumber(
+        velocity.vertical ?? velocity.z ?? velocity.Z ?? source.vertical_speed ?? source.verticalSpeed ?? source.speed_z ?? source.Z ?? source.z,
+        0
+      )
     },
     battery: {
       percent: clamp(
@@ -801,7 +804,8 @@ const normalizeDroneStatePayload = (payload = {}) => {
     rc_signal: toNullableNumber(source.rc_signal ?? source.rcSignal),
     rc_battery: toNullableNumber(
       source.remote_controller_status?.battery_percentage ??
-      source.rc_battery ?? source.rcBattery ?? source.rc_battery_percent ??
+      source.remote_controller_status?.battery_percent ??
+      source.rc_battery ?? source.rcBattery ?? source.rc_battery_percent ?? source.rc_battery_percentage ??
       aircraftStatus.rc_battery
     )
   }

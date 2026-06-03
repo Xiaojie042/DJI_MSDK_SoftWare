@@ -123,7 +123,15 @@ if errorlevel 1 exit /b 1
 
 if not exist "%RELEASE%\data\flights" mkdir "%RELEASE%\data\flights"
 if not exist "%RELEASE%\logs" mkdir "%RELEASE%\logs"
+if exist "%ROOT%\Scripts\tools" (
+  if exist "%RELEASE%\tools\zlmediakit" rmdir /s /q "%RELEASE%\tools\zlmediakit"
+  if exist "%RELEASE%\tools\gb28181-bridge" rmdir /s /q "%RELEASE%\tools\gb28181-bridge"
+  if exist "%ROOT%\Scripts\tools\zlmediakit" xcopy "%ROOT%\Scripts\tools\zlmediakit" "%RELEASE%\tools\zlmediakit\" /e /i /y >nul
+  if exist "%ROOT%\Scripts\tools\gb28181-bridge" xcopy "%ROOT%\Scripts\tools\gb28181-bridge" "%RELEASE%\tools\gb28181-bridge\" /e /i /y >nul
+)
 copy /y "%ENV_TEMPLATE%" "%RELEASE%\.env" >nul
+if exist "%ROOT%\data\runtime_config.json" copy /y "%ROOT%\data\runtime_config.json" "%RELEASE%\data\runtime_config.json" >nul
+if exist "%ROOT%\data\live_config.json" copy /y "%ROOT%\data\live_config.json" "%RELEASE%\data\live_config.json" >nul
 
 echo.
 echo Packaged release folder is ready: %RELEASE%

@@ -65,6 +65,7 @@ class DroneState(BaseModel):
 
     # 遥控器信号
     rc_signal: Optional[int] = Field(default=None, description="遥控器信号强度 (%)")
+    rc_battery: Optional[int] = Field(default=None, description="遥控器电量 (%)")
 
     # 原始遥测 JSON
     raw_payload: Optional[Dict[str, Any]] = Field(default=None, description="原始遥测 JSON")

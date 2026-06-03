@@ -274,12 +274,14 @@ class RtmpGatewayConfig(BaseModel):
     port: int = Field(default=1935, ge=1, le=65535)
     app: str = "live"
     stream: str = "drone"
-    zlm_executable_path: str = ""
+    zlm_executable_path: str = str(Path("tools") / "zlmediakit" / "MediaServer.exe")
     zlm_work_dir: str = ""
     zlm_config_path: str = ""
     zlm_http_host: str = "127.0.0.1"
     zlm_http_port: int = Field(default=18080, ge=1, le=65535)
     zlm_secret: str = DEFAULT_ZLM_SECRET
+    target_bitrate_kbps: float = Field(default=0.0, ge=0.0)
+    target_fps: float = Field(default=0.0, ge=0.0)
 
     @field_validator(
         "service_provider",
@@ -322,7 +324,7 @@ class Gb28181Config(BaseModel):
     auto_reconnect: bool = True
     heartbeat_interval: int = Field(default=60, ge=5, le=3600)
     rtmp_input_url: str = "rtmp://127.0.0.1/live/drone"
-    bridge_executable_path: str = ""
+    bridge_executable_path: str = str(Path("tools") / "gb28181-bridge" / "gb28181-bridge.exe")
     bridge_work_dir: str = ""
     bridge_config_path: str = ""
     bridge_command_template: str = ""
@@ -934,6 +936,8 @@ class LiveGatewayService:
     def _resolve_zlm_executable(self, config: RtmpGatewayConfig) -> str:
         candidates = [
             _clean_path(config.zlm_executable_path),
+            str(Path("Scripts") / "tools" / "zlmediakit" / "MediaServer.exe"),
+            str(Path("Scripts") / "tools" / "ZLMediaKit" / "MediaServer.exe"),
             str(Path("tools") / "zlmediakit" / "MediaServer.exe"),
             str(Path("tools") / "ZLMediaKit" / "MediaServer.exe"),
             str(Path("Scripts") / "release" / "tools" / "zlmediakit" / "MediaServer.exe"),
@@ -953,6 +957,8 @@ class LiveGatewayService:
     def _resolve_gb_bridge_executable(self, config: Gb28181Config) -> str:
         candidates = [
             _clean_path(config.bridge_executable_path),
+            str(Path("Scripts") / "tools" / "gb28181-bridge" / "happytime-gb28181-device-x64" / "GB28181Device.exe"),
+            str(Path("Scripts") / "tools" / "gb28181-bridge" / "gb28181-bridge.exe"),
             str(Path("tools") / "gb28181-bridge" / "happytime-gb28181-device-x64" / "GB28181Device.exe"),
             str(Path("tools") / "gb28181-bridge" / "gb28181-bridge.exe"),
             str(Path("Scripts") / "release" / "tools" / "gb28181-bridge" / "gb28181-bridge.exe"),

@@ -35,6 +35,8 @@ def test_live_gateway_persists_config_and_builds_rtmp_urls():
                         "port": 1940,
                         "app": "aircraft",
                         "stream": "m400",
+                        "target_bitrate_kbps": 4096,
+                        "target_fps": 25,
                     },
                     "gb28181": {
                         "sip_server_ip": "192.168.1.10",
@@ -46,11 +48,15 @@ def test_live_gateway_persists_config_and_builds_rtmp_urls():
             )
 
             assert result.rtmp.port == 1940
+            assert result.rtmp.target_bitrate_kbps == 4096
+            assert result.rtmp.target_fps == 25
             assert result.rtmp_push_url.endswith(":1940/aircraft/m400")
             assert result.gb28181.rtmp_input_url == "rtmp://127.0.0.1:1940/aircraft/m400"
 
             saved = json.loads((root / "live_config.json").read_text(encoding="utf-8"))
             assert saved["rtmp"]["app"] == "aircraft"
+            assert saved["rtmp"]["target_bitrate_kbps"] == 4096
+            assert saved["rtmp"]["target_fps"] == 25
             assert saved["gb28181"]["channel_id"] == "34020000001320000002"
 
     asyncio.run(scenario())
@@ -201,6 +207,17 @@ def test_gb28181_digest_401_challenge_is_not_a_registration_failure():
 
         assert service._infer_registration_status(True, True, "REGISTER\nSIP/2.0 401 Unauthorized") == "registering"
         assert service._infer_registration_status(True, True, "REGISTER\nSIP/2.0 200 OK") == "registered"
+
+    asyncio.run(scenario())
+
+
+def test_default_live_gateway_paths_point_to_scripts_tools():
+    async def scenario() -> None:
+        service = LiveGatewayService(config_path=Path("unused.json"), log_path=Path("unused.log"))
+        config = service.get_config()
+
+        assert config.rtmp.zlm_executable_path == str(Path("tools") / "zlmediakit" / "MediaServer.exe")
+        assert config.gb28181.bridge_executable_path == str(Path("tools") / "gb28181-bridge" / "gb28181-bridge.exe")
 
     asyncio.run(scenario())
 

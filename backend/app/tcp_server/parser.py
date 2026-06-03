@@ -67,6 +67,11 @@ class TcpDataParser:
             except json.JSONDecodeError as exc:
                 newline_index = chunk.find("\n")
                 if newline_index == -1:
+                    # Common split-packet case: keep the buffered fragment until more data arrives.
+                    if exc.pos >= len(chunk) - 1 or exc.msg.startswith("Unterminated string"):
+                        self._buffer = chunk
+                        break
+
                     # After sanitization, this should not normally happen.
                     # If it does, the data is malformed beyond recovery.
                     logger.warning("Skipping unrecoverable JSON chunk", error=str(exc), raw=chunk[:200])
@@ -207,6 +212,7 @@ class TcpDataParser:
                     ["gimbalPitch", "gimbal_pitch", "gimbal.pitch"],
                 ),
                 rc_signal=self._extract_rc_signal(payload),
+                rc_battery=self._extract_rc_battery(payload),
                 raw_payload=payload,
             )
 
@@ -262,7 +268,7 @@ class TcpDataParser:
                 "gps.latitude",
                 "location.latitude",
                 "position.latitude",
-                "home_location.latitude",
+                "aircraft_status.aircraft_location.latitude",
                 "aircraft_status.location.latitude",
                 "aircraft_status.latitude",
             ],
@@ -279,7 +285,7 @@ class TcpDataParser:
                 "gps.longitude",
                 "location.longitude",
                 "position.longitude",
-                "home_location.longitude",
+                "aircraft_status.aircraft_location.longitude",
                 "aircraft_status.location.longitude",
                 "aircraft_status.longitude",
             ],
@@ -337,12 +343,47 @@ class TcpDataParser:
                 "vSpeed",
                 "speed.vertical",
                 "velocity.vertical",
+                "speed_z",
+                "velocity.z",
+                "velocity.Z",
+                "Z",
+                "z",
             ],
         )
         if direct:
             return direct
 
-        return self._extract_float(payload, ["velocity.z"])
+        velocity_payload = payload.get("velocity") if isinstance(payload.get("velocity"), dict) else None
+        if velocity_payload:
+            z_value = velocity_payload.get("z") if velocity_payload.get("z") is not None else velocity_payload.get("Z")
+            try:
+                return float(z_value)
+            except (TypeError, ValueError):
+                pass
+
+        return self._extract_float(payload, ["speed.z"])
+
+    def _extract_rc_battery(self, payload: dict) -> Optional[int]:
+        direct = self._extract_value(
+            payload,
+            [
+                "remote_controller_status.battery_percentage",
+                "remote_controller_status.battery_percent",
+                "rc_battery",
+                "rcBattery",
+                "rc_battery_percent",
+                "rc_battery_percentage",
+                "aircraft_status.rc_battery",
+            ],
+        )
+
+        if direct is _MISSING:
+            return None
+
+        try:
+            return max(0, min(100, int(round(float(direct)))))
+        except (TypeError, ValueError):
+            return None
 
     def _extract_voltage(self, payload: dict) -> float:
         voltage = self._extract_float(

@@ -120,6 +120,10 @@ class TestTcpDataParser:
             "schema_version": 2,
             "timestamp": "2026-04-13 16:01:52.538",
             "relative_altitude": 12.5,
+            "location": {
+                "latitude": 31.2304,
+                "longitude": 121.4737,
+            },
             "flight_mode_string": "P-GPS",
             "is_flying": True,
             "aircraft_heading": -15.1,
@@ -141,6 +145,9 @@ class TestTcpDataParser:
                 "up_link_quality": 96,
                 "link_signal_quality": 5,
             },
+            "remote_controller_status": {
+                "battery_percentage": 12,
+            },
             "flight_controller_serial_number": "1581F8DBW256G00A2PXY",
         }
 
@@ -157,9 +164,44 @@ class TestTcpDataParser:
         assert state.battery.voltage == pytest.approx(52.306, rel=1e-3)
         assert state.battery.temperature == pytest.approx(29.3)
         assert state.rc_signal == 100
+        assert state.rc_battery == 12
         assert state.position.altitude == pytest.approx(12.5)
         assert 0 < abs(state.position.latitude) <= 90
         assert 0 < abs(state.position.longitude) <= 180
+
+    def test_parse_vertical_speed_from_velocity_z_and_top_level_z(self):
+        payloads = [
+            {"latitude": 31.2, "longitude": 121.4, "velocity": {"z": -2.6}},
+            {"latitude": 31.2, "longitude": 121.4, "Z": 3.4},
+        ]
+
+        for payload, expected in zip(payloads, (-2.6, 3.4)):
+            results = self.parser.feed(self._make_json_line(payload))
+            assert len(results) == 1
+            assert results[0].velocity.vertical == pytest.approx(expected)
+
+    def test_parse_prefers_aircraft_location_over_home_location(self):
+        data = {
+            "home_location": {
+                "latitude": 30.111111,
+                "longitude": 120.111111,
+            },
+            "aircraft_status": {
+                "aircraft_location": {
+                    "latitude": 31.222222,
+                    "longitude": 121.222222,
+                },
+                "home_location": {
+                    "latitude": 30.111111,
+                    "longitude": 120.111111,
+                },
+            },
+        }
+
+        results = self.parser.feed(self._make_json_line(data))
+        assert len(results) == 1
+        assert results[0].position.latitude == pytest.approx(31.222222)
+        assert results[0].position.longitude == pytest.approx(121.222222)
 
     def test_parse_json_stream_without_newline(self):
         data1 = {"latitude": 31.0, "longitude": 121.0, "batteryPercent": 60}

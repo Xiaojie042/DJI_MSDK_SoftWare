@@ -18,5 +18,7 @@ app.use(router)
 app.mount('#app')
 
 const runtimeConfigStore = useRuntimeConfigStore()
-logger.setApiBaseUrl(runtimeConfigStore.apiBaseUrl)
-logger.info('Frontend started', { apiBaseUrl: runtimeConfigStore.apiBaseUrl })
+void runtimeConfigStore.fetchRuntimeConfig().finally(() => {
+  logger.setApiBaseUrl(runtimeConfigStore.apiBaseUrl)
+  logger.info('Frontend started', { apiBaseUrl: runtimeConfigStore.apiBaseUrl })
+})

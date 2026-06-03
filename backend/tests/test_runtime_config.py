@@ -175,47 +175,37 @@ def test_dual_mqtt_targets_publish_independently():
         await client.publish_alert("battery", {"level": "WARNING"})
         await client.publish_psdk_data(_make_psdk_message("visibility"))
         await client.publish_psdk_data(_make_psdk_message("weather"))
+        await client.publish_telemetry(_make_state())
 
         instances = {item.client_id: item for item in _FakePahoClient.instances}
         local_published = instances["local-client"].published
         cloud_published = instances["cloud-client"].published
         local_topics = [message["topic"] for message in local_published]
         cloud_topics = [message["topic"] for message in cloud_published]
-        local_weather_messages = [
-            message for message in local_published
-            if message["topic"] == "drone/local/psdk/weather"
-        ]
-        cloud_weather_messages = [
-            message for message in cloud_published
-            if message["topic"] == "drone/cloud/psdk/weather"
-        ]
+        data_topic = "uav/M400-001/data"
+        alert_topic = "uav/M400-001/alert/battery"
+        local_data_messages = [message for message in local_published if message["topic"] == data_topic]
+        cloud_data_messages = [message for message in cloud_published if message["topic"] == data_topic]
 
-        assert "drone/local/data" in local_topics
-        assert "drone/local/alert/battery" in local_topics
-        assert "drone/local/psdk/weather" in local_topics
-        assert "drone/cloud/data" in cloud_topics
-        assert "drone/cloud/alert/battery" in cloud_topics
-        assert "drone/cloud/psdk/weather" in cloud_topics
-        assert "drone/local/psdk/visibility" not in local_topics
-        assert "drone/cloud/psdk/visibility" not in cloud_topics
-        assert len(local_weather_messages) == 2
-        assert len(cloud_weather_messages) == 2
+        assert alert_topic in local_topics
+        assert alert_topic in cloud_topics
+        assert local_topics.count(data_topic) == 2
+        assert cloud_topics.count(data_topic) == 2
+        assert len(local_data_messages) == 2
+        assert len(cloud_data_messages) == 2
 
-        local_visibility_first_payload = json.loads(local_weather_messages[0]["payload"])
-        local_weather_second_payload = json.loads(local_weather_messages[1]["payload"])
+        first_payload = json.loads(local_data_messages[0]["payload"])
+        second_payload = json.loads(local_data_messages[1]["payload"])
 
-        assert local_visibility_first_payload["device_type"] == "weather"
-        assert local_visibility_first_payload["trigger_device_type"] == "visibility"
-        assert local_visibility_first_payload["parsed_data"] is None
-        assert local_visibility_first_payload["visibility_payload"]["device_type"] == "visibility"
-        assert local_visibility_first_payload["visibility_payload"]["parsed_data"]["source"] == "visibility"
-
-        assert local_weather_second_payload["device_type"] == "weather"
-        assert local_weather_second_payload["trigger_device_type"] == "weather"
-        assert local_weather_second_payload["parsed_data"]["source"] == "weather"
-        assert local_weather_second_payload["visibility_payload"]["device_type"] == "visibility"
-        assert local_weather_second_payload["raw_payload"]["device_type"] == "weather"
-        assert local_weather_second_payload["raw_payload"]["visibility_payload"]["device_type"] == "visibility"
+        assert first_payload["type"] == "telemetry"
+        assert first_payload["psdk_data"]["weather"] is None
+        assert first_payload["psdk_data"]["visibility"] is None
+        assert second_payload["type"] == "telemetry"
+        assert second_payload["psdk_data"]["weather"]["device_type"] == "weather"
+        assert second_payload["psdk_data"]["weather"]["parsed_data"]["source"] == "weather"
+        assert second_payload["psdk_data"]["visibility"]["device_type"] == "visibility"
+        assert second_payload["psdk_data"]["visibility"]["parsed_data"]["source"] == "visibility"
+        assert all(json.loads(message["payload"]).get("type") != "psdk_update" for message in local_data_messages)
         assert instances["cloud-client"].tls_enabled is True
         assert client.status_snapshot["local"]["connected"] is True
         assert client.status_snapshot["cloud"]["connected"] is True
