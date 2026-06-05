@@ -15,6 +15,7 @@ logger = get_logger(__name__)
 
 BATTERY_LOW_THRESHOLD = 20
 GPS_WEAK_THRESHOLD = 2
+DEFAULT_STORAGE_QUEUE_SIZE = 1000
 
 
 class DataDispatcher:
@@ -23,11 +24,17 @@ class DataDispatcher:
         mqtt_client: MqttClient,
         ws_manager: WebSocketManager,
         storage: StorageService,
+        *,
+        storage_queue_size: int = DEFAULT_STORAGE_QUEUE_SIZE,
     ) -> None:
         self.mqtt = mqtt_client
         self.ws = ws_manager
         self.storage = storage
         self._last_alert_time = 0.0
+        self._storage_queue: asyncio.Queue[StreamMessage] = asyncio.Queue(
+            maxsize=max(1, int(storage_queue_size))
+        )
+        self._storage_worker_task: asyncio.Task[None] | None = None
 
     async def dispatch(self, message: StreamMessage) -> None:
         if isinstance(message, PsdkDataMessage):
@@ -44,14 +51,15 @@ class DataDispatcher:
             ws_clients=self.ws.connection_count,
         )
 
+        self._enqueue_storage(state, label="Database")
+
         results = await asyncio.gather(
             self._publish_mqtt(state),
             self._broadcast_ws(state),
-            self._save_db(state),
             return_exceptions=True,
         )
 
-        for name, result in zip(("MQTT", "WebSocket", "Database"), results):
+        for name, result in zip(("MQTT", "WebSocket"), results):
             if isinstance(result, Exception):
                 logger.error(f"{name} dispatch failed", error=str(result))
 
@@ -65,6 +73,59 @@ class DataDispatcher:
 
     async def _save_db(self, state: DroneState) -> None:
         await self.storage.save_telemetry(state)
+
+    def _enqueue_storage(self, message: StreamMessage, *, label: str) -> None:
+        self._ensure_storage_worker()
+        try:
+            self._storage_queue.put_nowait(message)
+        except asyncio.QueueFull:
+            logger.error(
+                f"{label} dispatch dropped because storage queue is full",
+                queue_size=self._storage_queue.qsize(),
+            )
+
+    def _ensure_storage_worker(self) -> None:
+        if self._storage_worker_task is None or self._storage_worker_task.done():
+            self._storage_worker_task = asyncio.create_task(
+                self._storage_worker(),
+                name="drone-storage-dispatcher",
+            )
+
+    async def _storage_worker(self) -> None:
+        while True:
+            message = await self._storage_queue.get()
+            try:
+                if isinstance(message, PsdkDataMessage):
+                    await self.storage.save_psdk_data(message)
+                else:
+                    await self._save_db(message)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.error(
+                    "Storage background dispatch failed",
+                    message_type=type(message).__name__,
+                    error=str(exc),
+                )
+            finally:
+                self._storage_queue.task_done()
+
+    async def drain_storage(self) -> None:
+        """Wait until all queued storage work has been processed."""
+        await self._storage_queue.join()
+
+    async def close(self) -> None:
+        """Flush queued storage work and stop the background storage worker."""
+        await self.drain_storage()
+        if self._storage_worker_task is None:
+            return
+
+        self._storage_worker_task.cancel()
+        try:
+            await self._storage_worker_task
+        except asyncio.CancelledError:
+            pass
+        self._storage_worker_task = None
 
     async def _check_alerts(self, state: DroneState) -> None:
         now = time.time()
@@ -110,13 +171,14 @@ class DataDispatcher:
             ws_clients=self.ws.connection_count,
         )
 
+        self._enqueue_storage(message, label="RawHistory")
+
         results = await asyncio.gather(
             self.mqtt.publish_psdk_data(message),
             self.ws.broadcast_json(message.model_dump(mode="json")),
-            self.storage.save_psdk_data(message),
             return_exceptions=True,
         )
 
-        for name, result in zip(("MQTT", "WebSocket", "RawHistory"), results):
+        for name, result in zip(("MQTT", "WebSocket"), results):
             if isinstance(result, Exception):
                 logger.error(f"{name} PSDK dispatch failed", error=str(result))

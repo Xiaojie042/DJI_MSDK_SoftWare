@@ -72,6 +72,9 @@ async def lifespan(app: FastAPI):
     logger.info("Stopping DJI drone monitor backend")
     await live_gateway_service.shutdown()
     await tcp_server.stop()
+    if dispatcher is not None:
+        await dispatcher.close()
+        dispatcher = None
     mqtt_client.disconnect()
     await storage_service.close()
     logger.info("Backend stopped cleanly")
